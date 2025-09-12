@@ -1,5 +1,16 @@
-__pycache__/
-*.pyc
-.env
 .venv/
-course_materials/
+.gitattributes
+.env
+# Virtualenv
+# https://realpython.com/python-virtual-environments-a-primer/#the-virtualenv-project
+.Python
+[Bb]in
+[Ii]nclude
+[Ll]ib
+[Ll]ib64
+[Ll]ocal
+[Ss]cripts
+pyvenv.cfg
+.venv
+pip-selfcheck.json
+
