@@ -4,3 +4,5 @@ python-dotenv
 supabase
 google-generativeai
 pydantic
+pdfplumber
+langchain

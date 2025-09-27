@@ -6,9 +6,15 @@ import google.generativeai as genai
 from fastapi import FastAPI, Depends, HTTPException, Header, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from typing import Optional, List
 import jwt
 from jwt import exceptions as jwt_exceptions
 import logging
+from datetime import datetime
+import uuid
+from auth import get_current_user
+from quiz import router as quiz_router, init_quiz_module
+from smart_suggestions import router as suggestions_router, init_suggestions_module
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -30,10 +36,11 @@ supabase: Client = create_client(supabase_url, supabase_key)
 # JWT secret for verifying Supabase JWTs (set this in env for production)
 SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "")
 
+
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # restrict in production
+    allow_origins=["http://localhost:3000", "http://localhost:5173", "http://localhost:8080", "*"],  # Add React dev servers
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -41,29 +48,104 @@ app.add_middleware(
 
 class ChatRequest(BaseModel):
     question: str
+    session_id: Optional[str] = None
+    exam_id: Optional[str] = None
+    subject_id: Optional[str] = None
+    chapter_id: Optional[str] = None
+    exam_name: Optional[str] = None
+    subject_name: Optional[str] = None
+    chapter_name: Optional[str] = None
+    images: Optional[List[str]] = None
 
-async def get_current_user(authorization: str = Header(None)):
-    if authorization is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authorization header missing")
-    parts = authorization.split()
-    if parts[0].lower() != "bearer" or len(parts) != 2:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authorization header")
-    token = parts[1]
+
+# get_current_user function moved to auth.py to avoid circular imports
+
+def get_or_create_session(user_id: str, exam_id: str, subject_id: str, chapter_id: str,
+                          exam_name: str, subject_name: str, chapter_name: str):
+    """Get existing session or create new one for the chapter"""
     try:
-        if SUPABASE_JWT_SECRET:
-            decoded = jwt.decode(token, SUPABASE_JWT_SECRET, algorithms=["HS256"], options={"verify_aud": False})
+        # Check for existing active session for this chapter
+        existing_session = supabase.table("chat_sessions") \
+            .select("*") \
+            .eq("user_id", user_id) \
+            .eq("chapter_id", chapter_id) \
+            .eq("status", "active") \
+            .execute()
+
+        if existing_session.data and len(existing_session.data) > 0:
+            session = existing_session.data[0]
+            # Update last activity
+            supabase.table("chat_sessions") \
+                .update({"updated_at": datetime.now().isoformat()}) \
+                .eq("id", session["id"]) \
+                .execute()
+            return session["id"]
         else:
-            # WARNING: insecure — only allowed for local dev when you can't verify signature
-            logging.warning("SUPABASE_JWT_SECRET not set — decoding token WITHOUT verification (dev only).")
-            decoded = jwt.decode(token, options={"verify_signature": False})
-        user_id = decoded.get("sub") or decoded.get("user_id")
-        if not user_id:
-            raise HTTPException(status_code=401, detail="Token missing user id")
-        return user_id
-    except jwt_exceptions.PyJWTError as e:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid token: {e}")
+            # Create new session
+            session_data = {
+                "id": str(uuid.uuid4()),
+                "user_id": user_id,
+                "exam_id": exam_id,
+                "subject_id": subject_id,
+                "chapter_id": chapter_id,
+                "session_name": f"{chapter_name} - {datetime.now().strftime('%Y-%m-%d')}",
+                "status": "active",
+                "message_count": 0,
+                "created_at": datetime.now().isoformat(),
+                "updated_at": datetime.now().isoformat(),
+                "started_at": datetime.now().isoformat()
+            }
+
+            new_session = supabase.table("chat_sessions") \
+                .insert(session_data) \
+                .execute()
+
+            return session_data["id"]
+    except Exception as e:
+        logging.exception("Failed to get/create session")
+        raise HTTPException(status_code=500, detail=f"Session management failed: {e}")
+
+def get_session_chat_history(session_id: str, limit: int = 6):
+    """Get chat history for a specific session"""
+    try:
+        resp = supabase.table("chat_history") \
+            .select("role, message, created_at") \
+            .eq("session_id", session_id) \
+            .order("created_at", desc=True) \
+            .limit(limit) \
+            .execute()
+        rows = resp.data or []
+        return list(reversed(rows))
+    except Exception as e:
+        logging.exception("Failed to fetch session chat history")
+        return []
+
+def save_session_chat_turn(user_id: str, session_id: str, role: str, message: str):
+    """Save chat turn with session context"""
+    try:
+        # Insert chat message
+        supabase.table("chat_history").insert({
+            "user_id": user_id,
+            "session_id": session_id,
+            "role": role,
+            "message": message,
+            "created_at": datetime.now().isoformat()
+        }).execute()
+
+        # Update session message count and activity
+        if role == "user":  # Only increment on user messages
+            supabase.rpc("increment_session_message_count", {"session_id": session_id}).execute()
+
+        supabase.table("chat_sessions") \
+            .update({"updated_at": datetime.now().isoformat()}) \
+            .eq("id", session_id) \
+            .execute()
+
+    except Exception as e:
+        logging.exception("Failed to save session chat turn")
 
 def get_chat_history(user_id: str, limit: int = 6):
+    """Fallback function for backward compatibility"""
     try:
         resp = supabase.table("chat_history") \
             .select("role, message, created_at") \
@@ -77,83 +159,101 @@ def get_chat_history(user_id: str, limit: int = 6):
         logging.exception("Failed to fetch chat history")
         return []
 
-def save_chat_turn(user_id: str, role: str, message: str):
-    try:
-        supabase.table("chat_history").insert({
-            "user_id": user_id,
-            "role": role,
-            "message": message
-        }).execute()
-    except Exception as e:
-        logging.exception("Failed to save chat turn")
+def get_dynamic_socratic_prompt(exam_name: str, subject_name: str, chapter_name: str):
+    """Generate dynamic Socratic prompt based on current educational context"""
+    return f"""
+You are "Newton," an expert AI Socratic tutor specializing in {exam_name} preparation, specifically for {subject_name}. You are currently helping a student with the "{chapter_name}" chapter. Your single most important goal is to guide the student to discover answers themselves through the Socratic method.
 
-SOCRATIC_PROMPT_TEMPLATE = """
-You are "Newton," an expert AI Socratic tutor for JEE Physics. Your single most important goal is to guide the student to discover the answer themselves, not to provide it directly.
+**Current Learning Context:**
+- **Exam:** {exam_name}
+- **Subject:** {subject_name}
+- **Chapter:** {chapter_name}
 
 **Core Directives (Follow these STRICTLY):**
 
-1.  **NEVER give the final answer directly.** Your purpose is to guide, not to tell.
-2.  **ALWAYS end your response with ONE open-ended guiding question** that probes the student's understanding or leads them to the next logical step.
-3.  **Source of Truth:** Base all your guidance strictly on the provided {context} and {history}. Do not introduce outside information.
+1. **NEVER give the final answer directly.** Your purpose is to guide through questions, not to tell.
+2. **ALWAYS end your response with ONE open-ended guiding question** that probes their understanding or leads them to the next logical step.
+3. **Stay focused on {chapter_name}** - relate all discussions back to this chapter's key concepts.
+4. **Source of Truth:** Base all guidance strictly on the provided context and chat history. Do not introduce outside information.
 
----
-**Your Persona and Method:**
+**Your Teaching Method:**
 
 * **Mode 1: Socratic Guiding (Your Default Mode)**
-    * **Initial Response:** Start by acknowledging their question and providing a tiny nudge. Your response must be concise (max 2 sentences).
-    * **Guiding Question:** After the initial nudge, ask a clarifying or leading question.
-    * **Hints:** If the student struggles, provide up to two very short hints (under 15 words each). Hints should be questions themselves or incomplete statements that require the student to think.
+    * Acknowledge their question and provide a tiny nudge (max 2 sentences)
+    * Ask a clarifying or leading question specific to {chapter_name} concepts
+    * If they struggle, provide up to two very short hints (under 15 words each) as questions
 
 * **Mode 2: Explaining (Fallback Mode)**
-    * **Trigger:** Only activate this mode if the student explicitly says "I don't know," "give me the answer," "explain it," or is clearly frustrated.
-    * **Action:** Provide a concise, step-by-step explanation (max 3 steps, under 80 words) using the {context}.
-    * **Re-engage:** After explaining, you MUST immediately ask, "Would you like to try a related practice problem to solidify your understanding?"
+    * **Trigger:** Only when student explicitly says "I don't know," "give me the answer," "explain it," or shows clear frustration
+    * **Action:** Provide a concise, step-by-step explanation (max 3 steps, under 80 words) using the context
+    * **Re-engage:** Ask "Would you like to try a related {chapter_name} practice problem to solidify your understanding?"
 
----
-**Example of a good Socratic interaction:**
+**Chapter-Specific Guidance:**
+Connect every concept to {chapter_name} and help them see how this fits into their {exam_name} {subject_name} preparation.
 
-* **Student:** "What is Newton's Second Law?"
-* **You (Good):** "That's a fundamental concept in mechanics. The law connects force, mass, and acceleration. Based on the context, what do you think is the relationship between those three variables? How might they be written in a formula?"
-
-**Example of a bad, non-Socratic response:**
-
-* **Student:** "What is Newton's Second Law?"
-* **You (Bad):** "Newton's Second Law is F=ma, where F is force, m is mass, and a is acceleration."
-
----
 **Inputs:**
 
-**Chat History:**
-{history}
+**Previous Conversation:**
+{{history}}
 
-**Course Material Context:**
-{context}
+**Relevant Course Material from {chapter_name}:**
+{{context}}
 
-**Student's Question:**
-"{question}"
+**Student's Current Question:**
+"{{question}}"
 
-Now, embody the role of Newton and generate your Socratic response.
+Now, as Newton, guide this student through {chapter_name} using the Socratic method.
 """
+
 
 @app.post("/api/chat")
 async def chat(request: ChatRequest, user_id: str = Depends(get_current_user)):
     question = request.question
-    # 1. Embed
+
+    # Validate required parameters for session-based chat
+    if not all([request.exam_id, request.subject_id, request.chapter_id,
+                request.exam_name, request.subject_name, request.chapter_name]):
+        raise HTTPException(status_code=400, detail="Missing required session parameters")
+
+    # 1. Session Management
+    try:
+        session_id = get_or_create_session(
+            user_id=user_id,
+            exam_id=request.exam_id,
+            subject_id=request.subject_id,
+            chapter_id=request.chapter_id,
+            exam_name=request.exam_name,
+            subject_name=request.subject_name,
+            chapter_name=request.chapter_name
+        )
+    except Exception as e:
+        return {"error": f"Session management failed: {e}"}
+
+    # 2. Embed with improved model (matching Edge Function)
     try:
         embedding_resp = genai.embed_content(
-            model="models/embedding-001",
+            model="models/text-embedding-004",  # Updated to match Edge Function
             content=question,
             task_type="RETRIEVAL_QUERY"
         )
         question_embedding = embedding_resp.get("embedding") if isinstance(embedding_resp, dict) else embedding_resp['embedding']
     except Exception as e:
-        return {"error": f"Embedding failed: {e}"}
+        # Fallback to older model if text-embedding-004 not available
+        try:
+            embedding_resp = genai.embed_content(
+                model="models/embedding-001",
+                content=question,
+                task_type="RETRIEVAL_QUERY"
+            )
+            question_embedding = embedding_resp.get("embedding") if isinstance(embedding_resp, dict) else embedding_resp['embedding']
+        except Exception as fallback_e:
+            return {"error": f"Embedding failed: {fallback_e}"}
 
-    # 2. Vector search
+    # 3. Vector search with improved threshold (matching Edge Function)
     try:
         matching_chunks = supabase.rpc("match_chunks", {
             "query_embedding": question_embedding,
-            "match_threshold": 0.75,
+            "match_threshold": 0.3,  # Lowered from 0.75 to match Edge Function
             "match_count": 5
         }).execute()
         chunks = matching_chunks.data or []
@@ -161,14 +261,19 @@ async def chat(request: ChatRequest, user_id: str = Depends(get_current_user)):
     except Exception as e:
         return {"error": f"Chunk search failed: {e}"}
 
-    # 3. History
-    history_rows = get_chat_history(user_id, limit=6)
+    # 4. Get session-specific history (instead of all user history)
+    history_rows = get_session_chat_history(session_id, limit=6)
     history_text = "\n".join([f"{r.get('role')}: {r.get('message')}" for r in history_rows])
 
-    # 4. Prompt
-    prompt = SOCRATIC_PROMPT_TEMPLATE.format(history=history_text, context=context, question=question)
+    # 5. Dynamic prompt based on educational context
+    prompt_template = get_dynamic_socratic_prompt(
+        request.exam_name,
+        request.subject_name,
+        request.chapter_name
+    )
+    prompt = prompt_template.format(history=history_text, context=context, question=question)
 
-    # 5. LLM call
+    # 6. LLM call
     try:
         model = genai.GenerativeModel("gemini-2.5-flash-lite")
         response = model.generate_content(
@@ -184,28 +289,107 @@ async def chat(request: ChatRequest, user_id: str = Depends(get_current_user)):
     except Exception as e:
         return {"error": f"LLM call failed: {e}"}
 
-    # 6. Save turns (use roles 'user' and 'assistant' to match frontend)
-    save_chat_turn(user_id, "user", question)
-    save_chat_turn(user_id, "assistant", answer)
+    # 7. Save turns with session context
+    save_session_chat_turn(user_id, session_id, "user", question)
+    save_session_chat_turn(user_id, session_id, "assistant", answer)
 
     return {"answer": answer}
 
 @app.get("/api/chat/history")
-async def get_chat_history_endpoint(user_id: str = Depends(get_current_user)):
+async def get_chat_history_endpoint(
+    user_id: str = Depends(get_current_user),
+    session_id: Optional[str] = None
+):
+    """Get chat history - session-specific if session_id provided, otherwise all user history"""
     try:
-        history = get_chat_history(user_id, limit=50)
+        if session_id:
+            history = get_session_chat_history(session_id, limit=50)
+        else:
+            history = get_chat_history(user_id, limit=50)
         return {"history": history}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get chat history: {e}")
 
 @app.post("/api/chat/clear")
-async def clear_chat_history(user_id: str = Depends(get_current_user)):
+async def clear_chat_history(
+    user_id: str = Depends(get_current_user),
+    session_id: Optional[str] = None
+):
+    """Clear chat history - session-specific if session_id provided, otherwise all user history"""
     try:
-        supabase.table("chat_history").delete().eq("user_id", user_id).execute()
-        return {"message": "Chat history cleared successfully"}
+        if session_id:
+            # Clear specific session history
+            supabase.table("chat_history").delete().eq("session_id", session_id).execute()
+            # Reset session message count
+            supabase.table("chat_sessions") \
+                .update({"message_count": 0, "updated_at": datetime.now().isoformat()}) \
+                .eq("id", session_id) \
+                .execute()
+            return {"message": "Session chat history cleared successfully"}
+        else:
+            # Clear all user history (legacy behavior)
+            supabase.table("chat_history").delete().eq("user_id", user_id).execute()
+            return {"message": "Chat history cleared successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to clear chat history: {e}")
+
+@app.get("/api/sessions")
+async def get_user_sessions(user_id: str = Depends(get_current_user)):
+    """Get all chat sessions for a user"""
+    try:
+        sessions = supabase.table("chat_sessions") \
+            .select("*") \
+            .eq("user_id", user_id) \
+            .order("updated_at", desc=True) \
+            .execute()
+        return {"sessions": sessions.data or []}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get sessions: {e}")
+
+@app.post("/api/sessions/{session_id}/archive")
+async def archive_session(session_id: str, user_id: str = Depends(get_current_user)):
+    """Archive a specific session"""
+    try:
+        # Verify session belongs to user
+        session = supabase.table("chat_sessions") \
+            .select("user_id") \
+            .eq("id", session_id) \
+            .eq("user_id", user_id) \
+            .single() \
+            .execute()
+
+        if not session.data:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        # Archive the session
+        supabase.table("chat_sessions") \
+            .update({"status": "archived", "updated_at": datetime.now().isoformat()}) \
+            .eq("id", session_id) \
+            .execute()
+
+        return {"message": "Session archived successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to archive session: {e}")
+
+
+
+
+
+
+
+
+
 
 @app.get("/api/health")
 async def health_check():
     return {"status": "healthy", "message": "AI Physics Tutor API is running"}
+
+# Initialize quiz module with dependencies and include router
+init_quiz_module(supabase, get_current_user)
+app.include_router(quiz_router)
+
+# Initialize smart suggestions module and include router
+init_suggestions_module(supabase, get_current_user)
+app.include_router(suggestions_router)

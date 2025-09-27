@@ -15,11 +15,11 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
-COURSE_MATERIALS_DIR = "course_materials/Physics_12/"  # folder with PDFs
+COURSE_MATERIALS_DIR = "..\..\course_materials\chemistry_11"
 EMBEDDING_MODEL = "models/embedding-001"
 BATCH_SIZE = 10
 
-# Init Supabase + Gemini
+# Init Supabase + Gemini``
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 genai.configure(api_key=GOOGLE_API_KEY)
 
