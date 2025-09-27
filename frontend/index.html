@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Newton AI Tutor</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <div id="auth-view" class="view">
+        <div class="auth-container">
+            <h1>Newton AI Tutor</h1>
+            <p>Your Personal JEE Physics Guide</p>
+            <form id="auth-form">
+                <input type="email" id="email" placeholder="Enter your email" required>
+                <input type="password" id="password" placeholder="Enter your password" required>
+                <button type="submit">Login / Sign Up</button>
+            </form>
+            <p id="auth-error" class="error-message"></p>
+        </div>
+    </div>
+
+    <div id="chat-view" class="view" style="display: none;">
+        <header class="chat-header">
+            <h2>Newton AI Tutor</h2>
+            <button id="logout-button">Logout</button>
+        </header>
+        <main id="chat-window" class="chat-window"></main>
+        <footer class="chat-footer">
+            <form id="chat-form">
+                <textarea id="message-input" placeholder="Ask a physics question..." required></textarea>
+                <button type="submit" id="send-button">Send</button>
+            </form>
+            <button id="clear-history-button" class="secondary-button">Clear History</button>
+        </footer>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="config.js"></script> 
+    <script src="script.js"></script>
+</body>
+</html>
