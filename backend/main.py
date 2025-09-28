@@ -56,6 +56,7 @@ class ChatRequest(BaseModel):
     subject_name: Optional[str] = None
     chapter_name: Optional[str] = None
     images: Optional[List[str]] = None
+    accessibility_settings: Optional[dict] = None
 
 
 # get_current_user function moved to auth.py to avoid circular imports
@@ -159,8 +160,102 @@ def get_chat_history(user_id: str, limit: int = 6):
         logging.exception("Failed to fetch chat history")
         return []
 
-def get_dynamic_socratic_prompt(exam_name: str, subject_name: str, chapter_name: str):
-    """Generate dynamic Socratic prompt based on current educational context"""
+def get_cognitive_adaptive_prompt(accessibility_settings: dict) -> str:
+    """Generate accessibility adaptations for cognitive disabilities"""
+    if not accessibility_settings:
+        return ""
+
+    adaptations = []
+
+    # ADHD adaptations
+    if accessibility_settings.get('simplifyLanguage', False):
+        adaptations.append("""
+        - Keep questions short and focused (max 2 sentences)
+        - Break complex concepts into micro-steps
+        - Use clear transitions: "First... Then... Finally..."
+        - Provide frequent positive reinforcement""")
+
+    # Dyslexia adaptations
+    if accessibility_settings.get('dyslexiaFont', False):
+        adaptations.append("""
+        - Avoid complex sentence structures
+        - Use familiar, high-frequency words
+        - Provide phonetic hints when introducing new terms
+        - Repeat key concepts using different phrasing""")
+
+    # Working memory support
+    if accessibility_settings.get('lineSpacing', True):
+        adaptations.append("""
+        - Allow extra thinking time - don't rush responses
+        - Provide multiple pathways to the same concept
+        - Use concrete examples before abstract concepts
+        - Check understanding frequently with simple questions""")
+
+    # Text-to-speech considerations
+    if accessibility_settings.get('textToSpeech', False):
+        adaptations.append("""
+        - Structure responses for clear audio reading
+        - Use punctuation for natural speech pauses
+        - Avoid complex formatting that doesn't read well aloud""")
+
+    return "\n".join(adaptations) if adaptations else ""
+
+def detect_frustration_markers(user_response: str) -> bool:
+    """Detect if user is showing signs of frustration or confusion"""
+    frustration_indicators = [
+        "i don't understand", "this is hard", "i'm confused", "i don't know",
+        "this doesn't make sense", "i'm lost", "i give up", "this is too difficult",
+        "i can't", "help me", "i'm stuck", "frustrated", "overwhelming"
+    ]
+
+    response_lower = user_response.lower()
+    return any(indicator in response_lower for indicator in frustration_indicators)
+
+def provide_emotional_support(response: str, is_frustrated: bool = False) -> str:
+    """Add emotional support to responses when needed"""
+    if is_frustrated:
+        encouragement = """🌟 **It's okay!** Learning takes time, and you're doing great by asking questions.
+
+"""
+        closing = """
+
+💪 **Remember**: Every expert was once a beginner. You've got this! Let's break this down into smaller steps."""
+        return f"{encouragement}{response}{closing}"
+    return response
+
+def add_memory_scaffold(response: str, current_concept: str, accessibility_settings: dict) -> str:
+    """Add memory scaffolding for users with working memory challenges"""
+    if not accessibility_settings or not accessibility_settings.get('simplifyLanguage', False):
+        return response
+
+    scaffold = f"""📋 **Where we are**: {current_concept}
+💡 **Key point to remember**: Focus on one concept at a time
+
+{response}
+
+🔄 **Next step**: Think about this one question, then we'll move forward together"""
+
+    return scaffold
+
+def get_dynamic_socratic_prompt(exam_name: str, subject_name: str, chapter_name: str, accessibility_settings: Optional[dict] = None):
+    """Generate dynamic Socratic prompt based on current educational context and accessibility needs"""
+
+    # Base accessibility adaptations
+    accessibility_adaptations = ""
+    if accessibility_settings:
+        cognitive_adaptations = get_cognitive_adaptive_prompt(accessibility_settings)
+        if cognitive_adaptations:
+            accessibility_adaptations = f"""
+
+**ACCESSIBILITY ADAPTATIONS (Follow these STRICTLY):**
+{cognitive_adaptations}
+
+**EMOTIONAL SUPPORT GUIDELINES:**
+- Watch for signs of frustration in student responses
+- Provide encouragement and break down complex ideas
+- Use positive reinforcement frequently
+- Offer multiple ways to understand the same concept"""
+
     return f"""
 You are "Newton," an expert AI Socratic tutor specializing in {exam_name} preparation, specifically for {subject_name}. You are currently helping a student with the "{chapter_name}" chapter. Your single most important goal is to guide the student to discover answers themselves through the Socratic method.
 
@@ -265,11 +360,12 @@ async def chat(request: ChatRequest, user_id: str = Depends(get_current_user)):
     history_rows = get_session_chat_history(session_id, limit=6)
     history_text = "\n".join([f"{r.get('role')}: {r.get('message')}" for r in history_rows])
 
-    # 5. Dynamic prompt based on educational context
+    # 5. Dynamic prompt based on educational context and accessibility
     prompt_template = get_dynamic_socratic_prompt(
         request.exam_name,
         request.subject_name,
-        request.chapter_name
+        request.chapter_name,
+        request.accessibility_settings
     )
     prompt = prompt_template.format(history=history_text, context=context, question=question)
 
@@ -286,6 +382,16 @@ async def chat(request: ChatRequest, user_id: str = Depends(get_current_user)):
             }
         )
         answer = getattr(response, "text", None) or (response.get("content") if isinstance(response, dict) else str(response))
+
+        # 6.5. Apply accessibility post-processing
+        if request.accessibility_settings:
+            # Detect frustration and add emotional support
+            is_frustrated = detect_frustration_markers(question)
+            answer = provide_emotional_support(answer, is_frustrated)
+
+            # Add memory scaffolding if needed
+            answer = add_memory_scaffold(answer, request.chapter_name, request.accessibility_settings)
+
     except Exception as e:
         return {"error": f"LLM call failed: {e}"}
 

@@ -5,13 +5,16 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { 
-  Send, 
-  Image as ImageIcon, 
-  ArrowLeft, 
+import {
+  Send,
+  Image as ImageIcon,
+  ArrowLeft,
   PanelRight,
   X,
-  Settings
+  Settings,
+  Mic,
+  MicOff,
+  Volume2
 } from "lucide-react";
 import { ChatCard } from "@/components/ChatCard";
 import { SideResourcesPanel } from "@/components/SideResourcesPanel";
@@ -22,6 +25,8 @@ import { getExam, getSubject, getChapterById } from "@/lib/subjects-data";
 import { ProfileDialog } from "@/components/ProfileDialog";
 import { useChapterSession } from "@/hooks/useChapterSession";
 import { chatService } from "@/services/chatService";
+import { useAccessibility } from "@/contexts/AccessibilityContext";
+import { useVoiceCommands } from "@/hooks/useVoiceCommands";
 
 interface Message {
   id: string;
@@ -59,6 +64,30 @@ export default function TutorChat() {
   const [chapterData, setChapterData] = useState<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Accessibility context
+  const { settings: accessibilitySettings } = useAccessibility();
+
+  // Voice command handlers
+  const voiceCommandHandlers = {
+    sendMessage: () => handleSendMessage(),
+    clearInput: () => setInputText(''),
+    requestHint: () => setInputText('Can you give me a hint to help me understand better?'),
+    requestExample: () => setInputText('Can you show me a solved example of this concept?'),
+    requestSlower: () => setInputText('Please explain that more slowly and in simpler terms.'),
+    requestSummary: () => setInputText('Can you summarize the key points from your previous response?'),
+    readLastResponse: () => {
+      const lastAiMessage = messages.findLast(msg => msg.type === 'ai');
+      if (lastAiMessage && 'speechSynthesis' in window) {
+        const utterance = new SpeechSynthesisUtterance(lastAiMessage.content);
+        speechSynthesis.speak(utterance);
+      }
+    },
+    toggleVoice: () => voiceCommands.toggleListening(),
+  };
+
+  // Voice commands hook
+  const voiceCommands = useVoiceCommands(voiceCommandHandlers);
 
   // Use custom session hook
   const { 
@@ -243,7 +272,8 @@ export default function TutorChat() {
         chapter_name: chapterData?.name,
         images: selectedImages.length > 0 ? await Promise.all(
           selectedImages.map(img => convertImageToBase64(img))
-        ) : undefined
+        ) : undefined,
+        accessibility_settings: accessibilitySettings
       });
 
       const aiResponse = response.answer || "I'm having trouble processing that right now. Could you try rephrasing your question?";
@@ -476,9 +506,40 @@ export default function TutorChat() {
                     onClick={() => fileInputRef.current?.click()}
                     disabled={isTyping}
                     className="border-border hover:bg-accent"
+                    title="Upload image"
                   >
                     <ImageIcon className="h-4 w-4" />
                   </Button>
+
+                  {/* Voice Control Button */}
+                  {accessibilitySettings.speechToText && voiceCommands.isVoiceSupported && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={voiceCommands.toggleListening}
+                      disabled={isTyping}
+                      className={`border-border hover:bg-accent ${voiceCommands.isListening ? 'bg-red-100 text-red-600' : ''}`}
+                      title={voiceCommands.isListening ? "Stop voice commands" : "Start voice commands (Ctrl+Shift+V)"}
+                    >
+                      {voiceCommands.isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                    </Button>
+                  )}
+
+                  {/* Read Last Response Button */}
+                  {accessibilitySettings.textToSpeech && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={voiceCommandHandlers.readLastResponse}
+                      disabled={isTyping || messages.length === 0}
+                      className="border-border hover:bg-accent"
+                      title="Read last AI response (Ctrl+Shift+R)"
+                    >
+                      <Volume2 className="h-4 w-4" />
+                    </Button>
+                  )}
                 </div>
                 
                 <Input

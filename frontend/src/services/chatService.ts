@@ -10,6 +10,7 @@ export interface ChatRequest {
   subject_name?: string;
   chapter_name?: string;
   images?: string[];
+  accessibility_settings?: any;
 }
 
 export interface ChatResponse {
