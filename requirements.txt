@@ -6,3 +6,5 @@ google-generativeai
 pydantic
 pdfplumber
 langchain
+python-multipart
+httpx

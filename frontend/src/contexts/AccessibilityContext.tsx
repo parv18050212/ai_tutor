@@ -6,8 +6,6 @@ export interface AccessibilitySettings {
   dyslexiaFont: boolean;
   lineSpacing: boolean;
   animations: boolean;
-  textToSpeech: boolean;
-  speechToText: boolean;
   captions: boolean;
   keyboardMode: boolean;
   simplifyLanguage: boolean;
@@ -21,8 +19,6 @@ const defaultSettings: AccessibilitySettings = {
   dyslexiaFont: false,
   lineSpacing: false,
   animations: true,
-  textToSpeech: false,
-  speechToText: false,
   captions: true,
   keyboardMode: true,
   simplifyLanguage: false,
@@ -73,7 +69,7 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
   // Apply settings to document
   useEffect(() => {
     const root = document.documentElement;
-    
+
     // Remove existing accessibility classes
     root.classList.remove(
       'accessibility-high-contrast',

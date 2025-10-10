@@ -1,6 +1,5 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useLocation } from 'react-router-dom';
-import { AccessibilitySidebar, AccessibilityTrigger } from '@/components/AccessibilitySidebar';
 import { PreferencesDialog } from '@/components/PreferencesDialog';
 import { Button } from '@/components/ui/button';
 import { Settings } from 'lucide-react';
@@ -10,9 +9,8 @@ interface LayoutProps {
 }
 
 export function Layout({ children }: LayoutProps) {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const location = useLocation();
-  
+
   // Hide header on index/landing page to avoid overlap
   const isIndexRoute = location.pathname === '/' || location.pathname === '' || location.pathname === '/index';
   const showHeader = !isIndexRoute;
@@ -37,11 +35,6 @@ export function Layout({ children }: LayoutProps) {
       <main className="w-full">
         {children}
       </main>
-      <AccessibilitySidebar 
-        isOpen={sidebarOpen} 
-        onClose={() => setSidebarOpen(false)} 
-      />
-      <AccessibilityTrigger onToggle={() => setSidebarOpen(!sidebarOpen)} />
     </div>
   );
 }

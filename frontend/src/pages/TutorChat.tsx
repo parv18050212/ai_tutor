@@ -27,6 +27,8 @@ import { useChapterSession } from "@/hooks/useChapterSession";
 import { chatService } from "@/services/chatService";
 import { useAccessibility } from "@/contexts/AccessibilityContext";
 import { useVoiceCommands } from "@/hooks/useVoiceCommands";
+import { VoiceRecorder } from "@/components/VoiceRecorder";
+import { useA2ASpeech } from "@/hooks/useA2ASpeech";
 
 interface Message {
   id: string;
@@ -68,6 +70,9 @@ export default function TutorChat() {
   // Accessibility context
   const { settings: accessibilitySettings } = useAccessibility();
 
+  // A2A Speech (STT/TTS)
+  const { synthesizeSpeech, isSynthesizing } = useA2ASpeech();
+
   // Voice command handlers
   const voiceCommandHandlers = {
     sendMessage: () => handleSendMessage(),
@@ -77,7 +82,8 @@ export default function TutorChat() {
     requestSlower: () => setInputText('Please explain that more slowly and in simpler terms.'),
     requestSummary: () => setInputText('Can you summarize the key points from your previous response?'),
     readLastResponse: () => {
-      const lastAiMessage = messages.findLast(msg => msg.type === 'ai');
+      // findLast may not be available in all runtimes; fallback to reversed find
+      const lastAiMessage = Array.from(messages).reverse().find(msg => msg.type === 'ai');
       if (lastAiMessage && 'speechSynthesis' in window) {
         const utterance = new SpeechSynthesisUtterance(lastAiMessage.content);
         speechSynthesis.speak(utterance);
@@ -138,6 +144,39 @@ export default function TutorChat() {
       loadChatHistory();
     }
   }, [sessionId, chapterData]);
+
+  // Auto-play TTS for AI responses
+  useEffect(() => {
+    const playTTSForLastMessage = async () => {
+      // Only auto-play if enabled in settings
+      if (!accessibilitySettings.textToSpeech || !accessibilitySettings.ttsAutoPlay) return;
+      if (isSynthesizing) return;
+      if (messages.length === 0) return;
+
+      const lastMessage = messages[messages.length - 1];
+      if (lastMessage.type !== 'ai') return;
+
+      try {
+        const audioUrl = await synthesizeSpeech(
+          lastMessage.content as string,
+          {
+            voice: accessibilitySettings.ttsVoice,
+            language: accessibilitySettings.ttsLanguage,
+            speed: accessibilitySettings.ttsSpeed,
+            pitch: accessibilitySettings.ttsPitch,
+            accessibilitySettings: accessibilitySettings
+          }
+        );
+
+        const audio = new Audio(audioUrl);
+        audio.play();
+      } catch (error) {
+        console.error('TTS playback error:', error);
+      }
+    };
+
+    playTTSForLastMessage();
+  }, [messages, accessibilitySettings.textToSpeech, accessibilitySettings.ttsAutoPlay]);
 
   const loadChatHistory = async () => {
     try {
@@ -324,7 +363,19 @@ export default function TutorChat() {
     });
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
+  // Auto-scroll when messages or typing status change
+  useEffect(() => {
+    const t = setTimeout(() => {
+      try {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      } catch (err) {
+        // ignore
+      }
+    }, 50);
+    return () => clearTimeout(t);
+  }, [messages, isTyping]);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSendMessage();
@@ -511,19 +562,16 @@ export default function TutorChat() {
                     <ImageIcon className="h-4 w-4" />
                   </Button>
 
-                  {/* Voice Control Button */}
-                  {accessibilitySettings.speechToText && voiceCommands.isVoiceSupported && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      onClick={voiceCommands.toggleListening}
+                  {/* Voice Recorder (A2A-based STT) */}
+                  {accessibilitySettings.speechToText && (
+                    <VoiceRecorder
+                      onTranscript={(transcript) => {
+                        setInputText((prev) => prev + (prev ? ' ' : '') + transcript);
+                      }}
+                      language={accessibilitySettings.sttLanguage}
                       disabled={isTyping}
-                      className={`border-border hover:bg-accent ${voiceCommands.isListening ? 'bg-red-100 text-red-600' : ''}`}
-                      title={voiceCommands.isListening ? "Stop voice commands" : "Start voice commands (Ctrl+Shift+V)"}
-                    >
-                      {voiceCommands.isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-                    </Button>
+                      className="inline-flex"
+                    />
                   )}
 
                   {/* Read Last Response Button */}
@@ -547,7 +595,7 @@ export default function TutorChat() {
                   placeholder="Ask a question about this chapter..."
                   value={inputText}
                   onChange={(e) => setInputText(e.target.value)}
-                  onKeyPress={handleKeyPress}
+                  onKeyDown={handleKeyDown}
                   disabled={isTyping}
                   className="flex-1 border-border bg-card text-foreground placeholder:text-muted-foreground focus:border-primary"
                 />

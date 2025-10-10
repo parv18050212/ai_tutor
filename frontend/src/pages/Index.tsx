@@ -14,15 +14,17 @@ import StatsSection from "@/components/StatsSection";
 import TestimonialsSection from "@/components/TestimonialsSection";
 import FAQSection from "@/components/FAQSection";
 import LandingFooter from "@/components/LandingFooter";
+import logoLight from "@/assets/atypical-academy-logo.png";
+import logoDark from "@/assets/atypical-academy-logo-dark.png";
+
 
 const Index = () => {
   const [isAuthed, setIsAuthed] = useState(false);
   const { theme, resolvedTheme } = useTheme();
   
   const currentTheme = theme === 'system' ? resolvedTheme : theme;
-  const logoSrc = currentTheme === 'dark' 
-    ? "/src/assets/atypical-academy-logo-dark.png"
-    : "/src/assets/atypical-academy-logo.png";
+  const logoSrc = currentTheme === 'dark' ? logoDark : logoLight;
+
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_, session) => {

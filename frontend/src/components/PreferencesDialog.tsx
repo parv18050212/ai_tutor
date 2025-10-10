@@ -13,7 +13,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { User, BookOpen, Accessibility, Settings, LogOut } from "lucide-react";
+import { User, BookOpen, Accessibility, Settings, LogOut, Volume2, Mic, Loader2, Play } from "lucide-react";
 import { useTheme } from "next-themes";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/components/ui/use-toast";
@@ -21,6 +21,8 @@ import { useAccessibility } from "@/contexts/AccessibilityContext";
 import { getAllExams } from "@/lib/subjects-data";
 import { DISABILITY_TYPES, FORMAT_PREFERENCES, LEARNING_SPEEDS } from "@/lib/onboarding-schemas";
 import { cleanupAuthState } from "@/lib/auth";
+import { useA2ASpeech } from "@/hooks/useA2ASpeech";
+import { Slider } from "@/components/ui/slider";
 
 type GradeLevel = "elementary" | "middle_school" | "high_school" | "undergraduate" | "graduate" | "other" | "11" | "12";
 
@@ -50,6 +52,15 @@ export function PreferencesDialog({ children }: PreferencesDialogProps) {
   const { settings: accessibilitySettings, updateSetting: updateAccessibilitySetting } = useAccessibility();
   const { theme, setTheme } = useTheme();
   const navigate = useNavigate();
+
+  // A2A Speech hooks
+  const { getVoices, getTTSLanguages, getSTTLanguages, synthesizeSpeech, isSynthesizing } = useA2ASpeech();
+
+  // Voice options state
+  const [availableVoices, setAvailableVoices] = useState<any[]>([]);
+  const [ttsLanguages, setTtsLanguages] = useState<any[]>([]);
+  const [sttLanguages, setSttLanguages] = useState<any[]>([]);
+  const [loadingVoices, setLoadingVoices] = useState(false);
   
   const [formData, setFormData] = useState({
     // Profile data
@@ -81,6 +92,33 @@ export function PreferencesDialog({ children }: PreferencesDialogProps) {
       loadSubjectsForExam(formData.exam_id);
     }
   }, [formData.exam_id]);
+
+  // Load voices when TTS is enabled
+  useEffect(() => {
+    if (open && accessibilitySettings.textToSpeech) {
+      loadVoiceOptions();
+    }
+  }, [open, accessibilitySettings.textToSpeech]);
+
+  // Load STT languages when STT is enabled
+  useEffect(() => {
+    if (open && accessibilitySettings.speechToText) {
+      loadLanguageOptions();
+    }
+  }, [open, accessibilitySettings.speechToText]);
+
+  // Auto-enable TTS/STT when visual disability is selected
+  useEffect(() => {
+    if (formData.disability_type === "visual") {
+      // Automatically enable TTS and STT for visual disabilities
+      if (!accessibilitySettings.textToSpeech) {
+        updateAccessibilitySetting('textToSpeech', true);
+      }
+      if (!accessibilitySettings.speechToText) {
+        updateAccessibilitySetting('speechToText', true);
+      }
+    }
+  }, [formData.disability_type]);
 
   const fetchProfile = async () => {
     try {
@@ -227,19 +265,70 @@ export function PreferencesDialog({ children }: PreferencesDialogProps) {
     setFormData({ ...formData, accessibility_needs: newNeeds });
   };
 
+  const loadVoiceOptions = async () => {
+    setLoadingVoices(true);
+    try {
+      const [voices, languages] = await Promise.all([
+        getVoices(accessibilitySettings.ttsLanguage),
+        getTTSLanguages()
+      ]);
+      setAvailableVoices(voices);
+      setTtsLanguages(languages);
+    } catch (error) {
+      console.error('Failed to load voice options:', error);
+    } finally {
+      setLoadingVoices(false);
+    }
+  };
+
+  const loadLanguageOptions = async () => {
+    try {
+      const languages = await getSTTLanguages();
+      setSttLanguages(languages);
+    } catch (error) {
+      console.error('Failed to load STT languages:', error);
+    }
+  };
+
+  const handleTestVoice = async () => {
+    try {
+      const audioUrl = await synthesizeSpeech(
+        'Hello! This is a test of the text to speech system.',
+        {
+          voice: accessibilitySettings.ttsVoice,
+          language: accessibilitySettings.ttsLanguage,
+          speed: accessibilitySettings.ttsSpeed,
+          pitch: accessibilitySettings.ttsPitch
+        }
+      );
+      const audio = new Audio(audioUrl);
+      audio.play();
+      toast({
+        title: "Playing test voice...",
+      });
+    } catch (error) {
+      console.error('Test voice error:', error);
+      toast({
+        title: "Error",
+        description: "Failed to test voice",
+        variant: "destructive",
+      });
+    }
+  };
+
   const handleLogout = async () => {
     setLoggingOut(true);
     try {
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
-      
+
       // Clean up auth state
       cleanupAuthState();
-      
+
       // Close dialog and redirect
       setOpen(false);
       navigate("/");
-      
+
       toast({
         title: "Logged out successfully",
         description: "You have been signed out of your account",
@@ -501,6 +590,215 @@ export function PreferencesDialog({ children }: PreferencesDialogProps) {
                       </div>
                     ))}
                   </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Audio & Speech Settings */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Audio & Speech Settings</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {/* Text-to-Speech */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label htmlFor="tts" className="flex items-center gap-2">
+                        <Volume2 className="h-4 w-4" />
+                        Text-to-Speech
+                      </Label>
+                      <p className="text-sm text-muted-foreground">
+                        Powered by Google Cloud Neural2 TTS
+                      </p>
+                    </div>
+                    <Switch
+                      id="tts"
+                      checked={accessibilitySettings.textToSpeech}
+                      onCheckedChange={(checked) => updateAccessibilitySetting('textToSpeech', checked)}
+                    />
+                  </div>
+
+                  {/* Advanced TTS Options */}
+                  {accessibilitySettings.textToSpeech && (
+                    <div className="ml-6 space-y-4 p-4 bg-muted/30 rounded-lg border">
+                      <h4 className="text-sm font-medium">Advanced TTS Options</h4>
+
+                      {/* Voice Selection */}
+                      <div className="space-y-2">
+                        <Label className="text-sm">Voice</Label>
+                        {loadingVoices ? (
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Loading voices...
+                          </div>
+                        ) : (
+                          <Select
+                            value={accessibilitySettings.ttsVoice}
+                            onValueChange={(value) => updateAccessibilitySetting('ttsVoice', value)}
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {availableVoices.length > 0 ? (
+                                availableVoices.slice(0, 10).map((voice) => (
+                                  <SelectItem key={voice.name} value={voice.name}>
+                                    {voice.name} ({voice.gender})
+                                  </SelectItem>
+                                ))
+                              ) : (
+                                <SelectItem value="en-US-Neural2-C">en-US-Neural2-C (FEMALE)</SelectItem>
+                              )}
+                            </SelectContent>
+                          </Select>
+                        )}
+                      </div>
+
+                      {/* Language Selection */}
+                      <div className="space-y-2">
+                        <Label className="text-sm">Language</Label>
+                        <Select
+                          value={accessibilitySettings.ttsLanguage}
+                          onValueChange={(value) => {
+                            updateAccessibilitySetting('ttsLanguage', value);
+                            loadVoiceOptions(); // Reload voices for new language
+                          }}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {ttsLanguages.length > 0 ? (
+                              ttsLanguages.map((lang) => (
+                                <SelectItem key={lang.code} value={lang.code}>
+                                  {lang.name}
+                                </SelectItem>
+                              ))
+                            ) : (
+                              <>
+                                <SelectItem value="en-US">English (US)</SelectItem>
+                                <SelectItem value="en-GB">English (UK)</SelectItem>
+                                <SelectItem value="es-ES">Spanish</SelectItem>
+                                <SelectItem value="fr-FR">French</SelectItem>
+                              </>
+                            )}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {/* Speed Control */}
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <Label className="text-sm">Speed</Label>
+                          <span className="text-sm text-muted-foreground">{accessibilitySettings.ttsSpeed.toFixed(1)}x</span>
+                        </div>
+                        <Slider
+                          value={[accessibilitySettings.ttsSpeed]}
+                          onValueChange={([value]) => updateAccessibilitySetting('ttsSpeed', value)}
+                          min={0.5}
+                          max={2.0}
+                          step={0.1}
+                          className="w-full"
+                        />
+                      </div>
+
+                      {/* Auto-play Toggle */}
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="autoplay" className="text-sm">
+                          Auto-play AI Responses
+                        </Label>
+                        <Switch
+                          id="autoplay"
+                          checked={accessibilitySettings.ttsAutoPlay}
+                          onCheckedChange={(checked) => updateAccessibilitySetting('ttsAutoPlay', checked)}
+                        />
+                      </div>
+
+                      {/* Test Voice Button */}
+                      <Button
+                        onClick={handleTestVoice}
+                        disabled={isSynthesizing}
+                        variant="outline"
+                        size="sm"
+                        className="w-full"
+                      >
+                        {isSynthesizing ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Testing...
+                          </>
+                        ) : (
+                          <>
+                            <Play className="h-4 w-4 mr-2" />
+                            Test Voice
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+
+                <Separator />
+
+                {/* Speech-to-Text */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label htmlFor="stt" className="flex items-center gap-2">
+                        <Mic className="h-4 w-4" />
+                        Speech-to-Text
+                      </Label>
+                      <p className="text-sm text-muted-foreground">
+                        Powered by Local Whisper (92%+ accuracy)
+                      </p>
+                    </div>
+                    <Switch
+                      id="stt"
+                      checked={accessibilitySettings.speechToText}
+                      onCheckedChange={(checked) => updateAccessibilitySetting('speechToText', checked)}
+                    />
+                  </div>
+
+                  {/* Advanced STT Options */}
+                  {accessibilitySettings.speechToText && (
+                    <div className="ml-6 space-y-4 p-4 bg-muted/30 rounded-lg border">
+                      <h4 className="text-sm font-medium">Advanced STT Options</h4>
+
+                      {/* STT Language Selection */}
+                      <div className="space-y-2">
+                        <Label className="text-sm">Language</Label>
+                        <Select
+                          value={accessibilitySettings.sttLanguage}
+                          onValueChange={(value) => updateAccessibilitySetting('sttLanguage', value)}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {sttLanguages.length > 0 ? (
+                              sttLanguages.map((lang) => (
+                                <SelectItem key={lang.code} value={lang.code}>
+                                  {lang.name}
+                                </SelectItem>
+                              ))
+                            ) : (
+                              <>
+                                <SelectItem value="en">English</SelectItem>
+                                <SelectItem value="es">Spanish</SelectItem>
+                                <SelectItem value="fr">French</SelectItem>
+                                <SelectItem value="de">German</SelectItem>
+                              </>
+                            )}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <p className="text-xs text-muted-foreground">
+                        💡 Click the microphone icon in the chat to start voice input
+                      </p>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>

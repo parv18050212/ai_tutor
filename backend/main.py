@@ -40,7 +40,7 @@ SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "")
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173", "http://localhost:8080", "*"],  # Add React dev servers
+    allow_origins=["http://frontend-12131332.s3-website.ap-south-1.amazonaws.com","http://localhost:8080"],  # Add React dev servers
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -371,7 +371,7 @@ async def chat(request: ChatRequest, user_id: str = Depends(get_current_user)):
 
     # 6. LLM call
     try:
-        model = genai.GenerativeModel("gemini-2.5-flash-lite")
+        model = genai.GenerativeModel("gemini-2.5-flash")
         response = model.generate_content(
             prompt,
             generation_config={
