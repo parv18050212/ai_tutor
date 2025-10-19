@@ -57,3 +57,4 @@ dist-ssr
 *.sln
 *.sw?
 .env.production
+.env.example
