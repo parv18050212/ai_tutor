@@ -131,6 +131,24 @@ const Quiz = () => {
     return () => window.removeEventListener('keydown', handleKeyPress);
   }, [selectedAnswer, currentQuestionIndex]);
 
+  const validateQuestions = (questions: QuizQuestion[]): boolean => {
+    // Check if any question has placeholder options like "Option A", "Option B"
+    for (const question of questions) {
+      const hasPlaceholders = question.options.some(opt =>
+        /^Option [A-D]$/i.test(opt) ||
+        /^[A-D]\.$/.test(opt) ||
+        opt.trim() === '' ||
+        opt.length < 5  // Too short to be a real option
+      );
+
+      if (hasPlaceholders) {
+        addDebugInfo(`Question validation failed: Found placeholder options in "${question.text.slice(0, 50)}..."`);
+        return false;
+      }
+    }
+    return true;
+  };
+
   const fetchQuizQuestions = async () => {
     try {
       addDebugInfo('Starting quiz question fetch');
@@ -148,10 +166,15 @@ const Quiz = () => {
         throw new Error('No quiz questions were generated');
       }
 
+      // Validate that questions have real content
+      if (!validateQuestions(fetchedQuestions)) {
+        throw new Error('Quiz generation failed to create valid questions. The AI may not have enough context about this topic. Please try again or choose a different chapter.');
+      }
+
       setQuestions(fetchedQuestions);
       setUserAnswers(new Array(fetchedQuestions.length).fill(null));
       setError(null);
-      addDebugInfo('Quiz questions loaded successfully');
+      addDebugInfo('Quiz questions loaded and validated successfully');
     } catch (error: any) {
       addDebugInfo(`Quiz fetch failed: ${error.response?.status} - ${error.message}`);
       const errorMessage = error.response?.data?.detail || error.message || "Failed to load quiz questions";
@@ -473,13 +496,14 @@ const Quiz = () => {
                 />
               </div>
 
-              <div className="flex gap-4 justify-center">
+              <div className="flex gap-4 justify-center" role="navigation" aria-label="Quiz result actions">
                 <Button
                   onClick={restartQuiz}
                   className="bg-primary text-primary-foreground hover:bg-primary/90"
                   disabled={submittingResult}
+                  aria-label="Retake the quiz"
                 >
-                  {submittingResult && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                  {submittingResult && <Loader2 className="h-4 w-4 mr-2 animate-spin" aria-hidden="true" />}
                   Retake Quiz
                 </Button>
                 <Button
@@ -487,6 +511,7 @@ const Quiz = () => {
                   variant="outline"
                   className="border-border text-foreground hover:bg-accent hover:text-accent-foreground"
                   disabled={submittingResult}
+                  aria-label="Return to tutor chat"
                 >
                   Back to Tutor
                 </Button>
@@ -520,26 +545,65 @@ const Quiz = () => {
   if (error) {
     return (
       <div className="min-h-screen bg-gradient-background p-6 flex items-center justify-center">
-        <Card className="bg-card border-border">
-          <CardContent className="p-6 text-center space-y-4">
-            <div className="text-red-500 text-4xl mb-4">⚠️</div>
-            <h2 className="text-xl font-semibold text-card-foreground">Quiz Loading Failed</h2>
-            <p className="text-muted-foreground">{error}</p>
-            <div className="flex gap-3 justify-center">
+        <Card className="bg-card/90 backdrop-blur-sm border-destructive/50 max-w-2xl">
+          <CardContent className="p-8 text-center space-y-6">
+            <div className="text-red-500 text-6xl mb-4">⚠️</div>
+            <h2 className="text-2xl font-bold text-card-foreground">Quiz Generation Failed</h2>
+            <div className="p-4 bg-destructive/10 border border-destructive/30 rounded-lg">
+              <p className="text-foreground text-base leading-relaxed">{error}</p>
+            </div>
+
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                This can happen when the AI doesn't have enough information about the topic. You can:
+              </p>
+              <ul className="text-sm text-muted-foreground text-left max-w-md mx-auto space-y-2">
+                <li className="flex items-start gap-2">
+                  <span className="text-primary mt-0.5">•</span>
+                  <span>Try generating the quiz again (sometimes it works on retry)</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-primary mt-0.5">•</span>
+                  <span>Go back to chat with the tutor to learn more first</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-primary mt-0.5">•</span>
+                  <span>Choose a different chapter or difficulty level</span>
+                </li>
+              </ul>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3 justify-center pt-4">
               <Button
                 onClick={fetchQuizQuestions}
-                className="bg-primary text-primary-foreground hover:bg-primary/90"
+                className="bg-primary text-primary-foreground hover:bg-primary/90 px-8"
+                size="lg"
               >
-                Try Again
+                🔄 Try Again
               </Button>
               <Button
                 onClick={() => navigate(`/tutor/${exam}/${subject}/${chapter}`)}
                 variant="outline"
                 className="border-border text-foreground hover:bg-accent hover:text-accent-foreground"
+                size="lg"
               >
-                Back to Tutor
+                ← Back to Tutor
               </Button>
             </div>
+
+            {/* Debug info for development */}
+            {process.env.NODE_ENV === 'development' && debugInfo.length > 0 && (
+              <details className="mt-6 text-left">
+                <summary className="text-sm font-semibold cursor-pointer text-muted-foreground hover:text-foreground">
+                  Debug Information (Dev Only)
+                </summary>
+                <div className="mt-2 p-3 bg-muted rounded-lg text-xs font-mono space-y-1 max-h-40 overflow-y-auto">
+                  {debugInfo.map((info, index) => (
+                    <div key={index} className="text-muted-foreground">{info}</div>
+                  ))}
+                </div>
+              </details>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -568,90 +632,101 @@ const Quiz = () => {
     <div className="min-h-screen bg-gradient-background p-6">
       <div className="max-w-4xl mx-auto">
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <Button
-            variant="outline"
-            onClick={() => navigate(`/tutor/${exam}/${subject}/${chapter}`)}
-            className="border-border text-foreground hover:bg-accent hover:text-accent-foreground"
-          >
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Tutor
-          </Button>
+        <div className="mb-6 space-y-4" role="navigation" aria-label="Quiz navigation">
+          <div className="flex items-center justify-between">
+            <Button
+              variant="outline"
+              onClick={() => navigate(`/tutor/${exam}/${subject}/${chapter}`)}
+              className="border-border text-foreground hover:bg-accent hover:text-accent-foreground"
+              aria-label="Return to tutor chat"
+            >
+              <ArrowLeft className="h-4 w-4 mr-2" aria-hidden="true" />
+              Back to Tutor
+            </Button>
+            <div className="text-right">
+              <p className="text-sm text-muted-foreground" role="status" aria-live="polite" aria-atomic="true">
+                Question {currentQuestionIndex + 1} of {questions.length}
+              </p>
+            </div>
+          </div>
           <div className="text-center">
-            <h1 className="text-2xl font-bold text-foreground capitalize">
+            <h1 className="text-2xl md:text-3xl font-bold text-foreground capitalize mb-2">
               {chapterData?.name || chapter?.replace(/-/g, ' ')}
             </h1>
-            <p className="text-muted-foreground">
-              {subjectData?.name} • {exam?.toUpperCase()} • 5 questions — Step-by-step hints available
-            </p>
-          </div>
-          <div className="text-right">
-            <p className="text-sm text-muted-foreground">
-              Question {currentQuestionIndex + 1} of {questions.length}
+            <p className="text-sm md:text-base text-muted-foreground">
+              {subjectData?.name} • 5 questions — Step-by-step hints available
             </p>
           </div>
         </div>
 
         {/* Progress Bar */}
-        <div className="mb-6">
-          <Progress value={progress} className="h-2" />
+        <div className="mb-6" role="region" aria-label="Quiz progress">
+          <Progress value={progress} className="h-2" aria-label={`Quiz progress: ${Math.round(progress)}% complete`} />
         </div>
 
         {/* Question Card */}
-        <Card className="bg-card border-border mb-6">
-          <CardHeader>
-            <CardTitle className="text-xl text-card-foreground">
+        <Card className="bg-card/90 backdrop-blur-sm border-border/50 shadow-lg mb-6" role="article" aria-labelledby="current-question">
+          <CardHeader className="pb-4">
+            <CardTitle id="current-question" className="text-xl md:text-2xl text-card-foreground leading-relaxed font-semibold">
               {currentQuestion.text}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             {/* Options */}
-            <div className="space-y-3">
+            <div className="space-y-3" role="radiogroup" aria-labelledby="current-question">
               {currentQuestion.options.map((option, index) => (
                 <Button
                   key={index}
                   variant={selectedAnswer === index ? "default" : "outline"}
-                  className={`w-full text-left justify-start p-4 h-auto ${
-                    selectedAnswer === index 
-                      ? "bg-primary text-primary-foreground" 
-                      : "border-border text-foreground hover:bg-accent hover:text-accent-foreground"
+                  className={`w-full text-left justify-start p-4 h-auto whitespace-normal text-base ${
+                    selectedAnswer === index
+                      ? "bg-primary text-primary-foreground shadow-md border-2 border-primary"
+                      : "border-border text-foreground hover:bg-accent hover:text-accent-foreground hover:border-primary/50 transition-all"
                   }`}
                   onClick={() => handleAnswerSelect(index)}
+                  role="radio"
+                  aria-checked={selectedAnswer === index}
+                  aria-label={`Option ${index + 1}: ${option}`}
                 >
-                  <span className="mr-3 font-bold">{index + 1}.</span>
-                  {option}
+                  <span className="mr-3 font-bold flex-shrink-0" aria-hidden="true">{index + 1}.</span>
+                  <span className="break-words">{option}</span>
                 </Button>
               ))}
             </div>
 
             {/* Hint Section */}
-            <div className="pt-4 border-t border-border">
-              <Button
-                variant="outline"
-                onClick={toggleHint}
-                className="mb-3 border-border text-foreground hover:bg-accent hover:text-accent-foreground"
-              >
-                <Lightbulb className="h-4 w-4 mr-2" />
-                {showHint ? "Hide" : "Show"} Hint
-              </Button>
-              {settings?.textToSpeech && (
+            <div className="pt-4 border-t border-border" role="region" aria-label="Question hint">
+              <div className="flex flex-wrap gap-2">
                 <Button
                   variant="outline"
-                  onClick={() => {
-                    const text = showHint ? currentQuestion.hint : currentQuestion.text;
-                    const utterance = new SpeechSynthesisUtterance(text);
-                    speechSynthesis.speak(utterance);
-                  }}
-                  className="ml-2 border-border text-foreground hover:bg-accent hover:text-accent-foreground"
+                  onClick={toggleHint}
+                  className="border-border text-foreground hover:bg-accent hover:text-accent-foreground"
+                  aria-label={showHint ? "Hide hint" : "Show hint"}
+                  aria-expanded={showHint}
                 >
-                  <Volume2 className="h-4 w-4 mr-2" />
-                  Read Aloud
+                  <Lightbulb className="h-4 w-4 mr-2" aria-hidden="true" />
+                  {showHint ? "Hide" : "Show"} Hint
                 </Button>
-              )}
-              
+                {settings?.textToSpeech && (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      const text = showHint ? currentQuestion.hint : currentQuestion.text;
+                      const utterance = new SpeechSynthesisUtterance(text);
+                      speechSynthesis.speak(utterance);
+                    }}
+                    className="border-border text-foreground hover:bg-accent hover:text-accent-foreground"
+                    aria-label={showHint ? "Read hint aloud" : "Read question aloud"}
+                  >
+                    <Volume2 className="h-4 w-4 mr-2" aria-hidden="true" />
+                    Read Aloud
+                  </Button>
+                )}
+              </div>
+
               {showHint && (
-                <div className="mt-3 p-4 bg-muted rounded-lg">
-                  <p className="text-muted-foreground italic">
+                <div className="mt-3 p-4 bg-muted/50 backdrop-blur-sm rounded-lg border border-border/50" role="status" aria-live="polite">
+                  <p className="text-foreground italic leading-relaxed">
                     💡 {currentQuestion.hint}
                   </p>
                 </div>
@@ -659,25 +734,29 @@ const Quiz = () => {
             </div>
 
             {/* Navigation */}
-            <div className="flex justify-between pt-4">
-              <Button
-                variant="outline"
-                onClick={handlePreviousQuestion}
-                disabled={currentQuestionIndex === 0}
-                className="border-border text-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
-              >
-                Previous
-              </Button>
-              <p className="text-sm text-muted-foreground self-center">
-                Press 1-4 to select, H for hint, Enter to continue
+            <div className="pt-4 space-y-3" role="navigation" aria-label="Question navigation">
+              <div className="flex justify-between items-center gap-4">
+                <Button
+                  variant="outline"
+                  onClick={handlePreviousQuestion}
+                  disabled={currentQuestionIndex === 0}
+                  className="border-border text-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-50 flex-shrink-0"
+                  aria-label="Go to previous question"
+                >
+                  Previous
+                </Button>
+                <Button
+                  onClick={handleNextQuestion}
+                  disabled={selectedAnswer === null}
+                  className="bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 flex-shrink-0"
+                  aria-label={currentQuestionIndex === questions.length - 1 ? "Finish quiz" : "Go to next question"}
+                >
+                  {currentQuestionIndex === questions.length - 1 ? "Finish Quiz" : "Next"}
+                </Button>
+              </div>
+              <p className="text-xs md:text-sm text-muted-foreground text-center" role="note">
+                💡 Press 1-4 to select answer • H for hint • Enter to continue
               </p>
-              <Button
-                onClick={handleNextQuestion}
-                disabled={selectedAnswer === null}
-                className="bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-              >
-                {currentQuestionIndex === questions.length - 1 ? "Finish" : "Next"}
-              </Button>
             </div>
           </CardContent>
         </Card>

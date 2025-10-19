@@ -153,7 +153,22 @@ def get_exam_specific_quiz_prompt(exam_type: str, subject_name: str, chapter_nam
         return f"""
 You are an expert JEE question generator. Create {question_count} HIGH-DIFFICULTY multiple choice questions for {chapter_name} SPECIFICALLY in {subject_name}.
 
+**CRITICAL OUTPUT FORMAT**: You MUST output ONLY valid JSON. No markdown, no code blocks, no explanations outside the JSON. Just the raw JSON array.
+
 **CRITICAL: ALL QUESTIONS MUST BE STRICTLY {subject_name.upper()} QUESTIONS. DO NOT include questions from other subjects like Physics, Chemistry, or Mathematics unless that is the specified subject.**
+
+**Required JSON Structure - Return an array of objects with these exact field names:**
+- question_text: The complete question text
+- option_a: First answer option
+- option_b: Second answer option
+- option_c: Third answer option
+- option_d: Fourth answer option
+- correct_answer: Letter "a", "b", "c", or "d" (lowercase)
+- hint: A helpful hint without giving away the answer
+- explanation: Detailed explanation with complete solution steps
+
+Example structure (return actual questions, not this example):
+[{{"question_text":"...", "option_a":"...", "option_b":"...", "option_c":"...", "option_d":"...", "correct_answer":"a", "hint":"...", "explanation":"..."}}]
 
 **JEE Question Standards:**
 - **Difficulty Level: VERY HIGH** - Requires deep conceptual understanding and problem-solving skills
@@ -172,26 +187,34 @@ You are an expert JEE question generator. Create {question_count} HIGH-DIFFICULT
 {language_complexity}
 {accessibility_instructions}
 
-**Question Format for Each Question:**
-1. **Question stem**: Clear, specific scenario requiring deep analysis
-2. **4 options**: One correct, three plausible distractors including common errors
-3. **Hint**: Guide toward the approach/method without giving steps away
-4. **Explanation**: Show complete solution with reasoning at JEE level
-5. **Difficulty assessment**: Confirm this is JEE Advanced level complexity
-
 **Context from course material:**
 {{context}}
 
 **Important**: These questions should be challenging enough for JEE Advanced while remaining accessible given the student's needs. Focus on testing deep understanding rather than trick questions.
 
-Generate {question_count} JEE-level questions now.
+Generate {question_count} JEE-level questions now in JSON format ONLY. Return ONLY the JSON array, nothing else.
 """
 
     elif exam_type.lower() == "cuet":
         return f"""
 You are an expert CUET question generator. Create {question_count} MODERATE-DIFFICULTY multiple choice questions for {chapter_name} SPECIFICALLY in {subject_name}.
 
+**CRITICAL OUTPUT FORMAT**: You MUST output ONLY valid JSON. No markdown, no code blocks, no explanations outside the JSON. Just the raw JSON array.
+
 **CRITICAL: ALL QUESTIONS MUST BE STRICTLY {subject_name.upper()} QUESTIONS. DO NOT include questions from other subjects unless that is the specified subject.**
+
+**Required JSON Structure - Return an array of objects with these exact field names:**
+- question_text: The complete question text
+- option_a: First answer option
+- option_b: Second answer option
+- option_c: Third answer option
+- option_d: Fourth answer option
+- correct_answer: Letter "a", "b", "c", or "d" (lowercase)
+- hint: A helpful hint without giving away the answer
+- explanation: Detailed explanation with NCERT references
+
+Example structure (return actual questions, not this example):
+[{{"question_text":"...", "option_a":"...", "option_b":"...", "option_c":"...", "option_d":"...", "correct_answer":"a", "hint":"...", "explanation":"..."}}]
 
 **CUET Question Standards:**
 - **Difficulty Level: MODERATE** - Based on NCERT textbook knowledge
@@ -209,19 +232,12 @@ You are an expert CUET question generator. Create {question_count} MODERATE-DIFF
 {language_complexity}
 {accessibility_instructions}
 
-**Question Format for Each Question:**
-1. **Question stem**: Clear, direct question based on NCERT concepts
-2. **4 options**: One correct, three reasonable distractors
-3. **Hint**: Reference relevant NCERT content or key concept
-4. **Explanation**: Clear explanation with NCERT textbook reference where applicable
-5. **Difficulty assessment**: Confirm this matches NCERT/CUET level
-
 **Context from course material:**
 {{context}}
 
 **Important**: Questions should test understanding at NCERT level. Avoid JEE-style complexity while ensuring conceptual clarity.
 
-Generate {question_count} CUET-level questions now.
+Generate {question_count} CUET-level questions now in JSON format ONLY. Return ONLY the JSON array, nothing else.
 """
 
     elif exam_type.lower() == "neet":
@@ -285,6 +301,96 @@ You are an expert question generator. Create {question_count} MODERATE-DIFFICULT
 Generate {question_count} questions now.
 """
 
+def try_parse_json_response(ai_response: str, exam_type: str, difficulty: str) -> List[QuizQuestion]:
+    """Try to parse JSON-formatted quiz response"""
+    import json
+    import re
+
+    questions = []
+    exam_config = EXAM_DIFFICULTY_MAPPING.get(exam_type, EXAM_DIFFICULTY_MAPPING["cuet"])
+
+    try:
+        # Clean the response - remove markdown code blocks if present
+        cleaned_response = ai_response.strip()
+
+        # Remove markdown code blocks
+        if "```json" in cleaned_response:
+            cleaned_response = re.sub(r'```json\s*', '', cleaned_response)
+            cleaned_response = re.sub(r'```\s*$', '', cleaned_response)
+        elif "```" in cleaned_response:
+            cleaned_response = re.sub(r'```\s*', '', cleaned_response)
+
+        # Try to find JSON array in the response
+        json_match = re.search(r'\[[\s\S]*\]', cleaned_response)
+        if json_match:
+            cleaned_response = json_match.group(0)
+
+        # Parse JSON
+        json_data = json.loads(cleaned_response)
+
+        if not isinstance(json_data, list):
+            logging.warning("JSON response is not a list")
+            return []
+
+        # Convert JSON to QuizQuestion objects
+        for i, item in enumerate(json_data, 1):
+            try:
+                # Extract question text
+                question_text = item.get('question_text', item.get('question', ''))
+
+                # Extract options
+                options = [
+                    item.get('option_a', item.get('a', '')),
+                    item.get('option_b', item.get('b', '')),
+                    item.get('option_c', item.get('c', '')),
+                    item.get('option_d', item.get('d', ''))
+                ]
+
+                # Remove empty options
+                options = [opt for opt in options if opt.strip()]
+
+                # Ensure we have at least 4 options
+                if len(options) < 4:
+                    logging.warning(f"Question {i} has only {len(options)} options, skipping")
+                    continue
+
+                # Extract correct answer
+                correct_answer_str = item.get('correct_answer', item.get('answer', 'a')).lower()
+                correct_answer_map = {'a': 0, 'b': 1, 'c': 2, 'd': 3}
+                correct_answer = correct_answer_map.get(correct_answer_str, 0)
+
+                # Extract hint and explanation
+                hint = item.get('hint', 'Think about the fundamental concepts involved.')
+                explanation = item.get('explanation', 'Refer to the course material for detailed explanation.')
+
+                if question_text and len(options) >= 4:
+                    questions.append(QuizQuestion(
+                        id=f"q_{i}_{uuid.uuid4().hex[:8]}",
+                        text=question_text.strip(),
+                        options=options[:4],
+                        correct_answer=correct_answer,
+                        hint=hint.strip(),
+                        explanation=explanation.strip(),
+                        difficulty_level=difficulty,
+                        question_type="conceptual",
+                        time_estimate=exam_config["time_per_question"]
+                    ))
+                    logging.info(f"Successfully parsed JSON question {i}: {question_text[:50]}...")
+
+            except Exception as e:
+                logging.warning(f"Failed to parse JSON question {i}: {e}")
+                continue
+
+        if questions:
+            logging.info(f"Successfully parsed {len(questions)} questions from JSON")
+
+    except json.JSONDecodeError as e:
+        logging.warning(f"Failed to parse JSON response: {e}")
+    except Exception as e:
+        logging.warning(f"Unexpected error parsing JSON: {e}")
+
+    return questions
+
 def parse_ai_quiz_response(ai_response: str, exam_type: str, difficulty: str) -> List[QuizQuestion]:
     """Parse AI response into structured quiz questions"""
     questions = []
@@ -293,10 +399,17 @@ def parse_ai_quiz_response(ai_response: str, exam_type: str, difficulty: str) ->
     logging.info(f"Parsing AI response for {exam_type} quiz: {ai_response[:500]}...")
 
     try:
-        # Try multiple parsing strategies
-        questions = try_parse_numbered_questions(ai_response, exam_type, difficulty)
+        # Try multiple parsing strategies - JSON first since we're now requesting it
+        questions = try_parse_json_response(ai_response, exam_type, difficulty)
+
+        if questions:
+            logging.info(f"JSON parsing succeeded with {len(questions)} questions")
+        else:
+            logging.info("JSON parsing failed, trying numbered format")
+            questions = try_parse_numbered_questions(ai_response, exam_type, difficulty)
 
         if not questions:
+            logging.info("Numbered format failed, trying markdown format")
             questions = try_parse_markdown_questions(ai_response, exam_type, difficulty)
 
         if not questions:
@@ -677,23 +790,75 @@ async def generate_quiz(
         # Format the prompt with context
         final_prompt = quiz_prompt.format(context=context)
 
-        # Call AI to generate questions
-        model = genai.GenerativeModel("gemini-2.5-flash-lite")
-        response = model.generate_content(
-            final_prompt,
-            generation_config={
-                "temperature": 0.3,  # Slightly higher for variety
-                "top_p": 0.8,
-                "top_k": 40,
-                "max_output_tokens": 2048  # More tokens for multiple questions
-            }
-        )
+        # Call AI to generate questions using Gemini 2.0 Flash (better JSON reliability)
+        model = genai.GenerativeModel("gemini-2.0-flash-exp")
 
-        ai_response = getattr(response, "text", None) or (response.get("content") if isinstance(response, dict) else str(response))
+        generation_config = {
+            "temperature": 0.2,  # Lower for more consistent JSON format
+            "top_p": 0.95,       # Higher for better quality
+            "top_k": 40,
+            "max_output_tokens": 3000,  # More room for complete 5-question responses
+            "response_mime_type": "application/json"  # Explicitly request JSON output
+        }
 
-        # Parse the AI response into structured questions
-        # This is a simplified parser - you may want to make it more robust
-        questions = parse_ai_quiz_response(ai_response, exam_type, difficulty)
+        # Retry logic for robust question generation
+        questions = []
+        max_retries = 2
+
+        for attempt in range(max_retries):
+            try:
+                logging.info(f"Quiz generation attempt {attempt + 1}/{max_retries}")
+
+                response = model.generate_content(final_prompt, generation_config=generation_config)
+                ai_response = getattr(response, "text", None) or (response.get("content") if isinstance(response, dict) else str(response))
+
+                # Detailed logging for debugging
+                logging.info(f"AI response received - Length: {len(ai_response)} characters")
+                logging.info(f"AI response preview (first 500 chars): {ai_response[:500]}")
+
+                # Check for JSON markers
+                if "```json" in ai_response:
+                    logging.info("Found JSON code block markers in response")
+                elif "[" in ai_response:
+                    logging.info("Found JSON array bracket in response")
+                else:
+                    logging.warning("No obvious JSON markers found in response")
+
+                # Parse the AI response into structured questions
+                questions = parse_ai_quiz_response(ai_response, exam_type, difficulty)
+
+                # Validate that we got real questions (not placeholders)
+                if questions and len(questions) >= n:
+                    # Check for placeholder options
+                    has_placeholders = any(
+                        any("Option " in opt or len(opt) < 5 for opt in q.options)
+                        for q in questions
+                    )
+
+                    if not has_placeholders:
+                        logging.info(f"Successfully generated {len(questions)} valid questions on attempt {attempt + 1}")
+                        break
+                    else:
+                        logging.warning(f"Attempt {attempt + 1}: Questions contain placeholder options")
+                else:
+                    logging.warning(f"Attempt {attempt + 1}: Got {len(questions)} questions, expected {n}")
+
+                # If this isn't the last attempt, adjust config and retry
+                if attempt < max_retries - 1:
+                    logging.info("Retrying with adjusted temperature...")
+                    generation_config["temperature"] = 0.1  # Even lower temperature for retry
+
+            except Exception as e:
+                logging.warning(f"Attempt {attempt + 1} failed with error: {e}")
+                if attempt == max_retries - 1:
+                    # Last attempt failed - will use fallback
+                    logging.error("All retry attempts failed")
+                    questions = []
+
+        # If no valid questions were generated, use fallback
+        if not questions or len(questions) == 0:
+            logging.warning("No valid questions generated, using fallback questions")
+            questions = create_fallback_questions(exam_type, difficulty)
 
         # Calculate total estimated time
         exam_config = EXAM_DIFFICULTY_MAPPING.get(exam_type, EXAM_DIFFICULTY_MAPPING["cuet"])
@@ -701,6 +866,10 @@ async def generate_quiz(
 
         # Generate recommendations
         recommendations = generate_quiz_recommendations(exam_type, difficulty, len(questions), accessibility_list)
+
+        # Add warning to recommendations if using fallback
+        if any("Sample" in q.text or "placeholder" in q.text.lower() for q in questions):
+            recommendations = "⚠️ Quiz generation had issues. Using sample questions. Please try regenerating. | " + recommendations
 
         return QuizResponse(
             questions=questions,
@@ -711,8 +880,18 @@ async def generate_quiz(
         )
 
     except Exception as e:
-        logging.exception("Failed to generate quiz")
-        raise HTTPException(status_code=500, detail=f"Quiz generation failed: {e}")
+        logging.exception("Failed to generate quiz - returning fallback questions")
+        # Don't raise HTTP 500 - return fallback questions instead for better UX
+        exam_config = EXAM_DIFFICULTY_MAPPING.get(exam_type, EXAM_DIFFICULTY_MAPPING["cuet"])
+        fallback_questions = create_fallback_questions(exam_type, difficulty)
+
+        return QuizResponse(
+            questions=fallback_questions,
+            exam_type=exam_type,
+            difficulty_level=difficulty,
+            total_estimated_time=len(fallback_questions) * exam_config["time_per_question"],
+            recommendations=f"⚠️ Quiz generation error: {str(e)}. Using sample questions. Please try again."
+        )
 
 @router.post("/api/quiz/submit")
 async def submit_quiz_result(

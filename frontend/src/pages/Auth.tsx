@@ -198,7 +198,7 @@ const Auth = () => {
       </div>
 
 
-      <main className="relative z-10 min-h-screen flex items-center justify-center p-4">
+      <main className="relative z-10 min-h-screen flex items-center justify-center p-4" role="main">
         <div className="w-full max-w-4xl grid lg:grid-cols-2 gap-8 items-center">
           {/* Left side - Branding and features */}
           <div className="text-center lg:text-left space-y-6">
@@ -259,13 +259,14 @@ const Auth = () => {
 
                 <TabsContent value="login" className="mt-6">
                   <div className="space-y-4">
-                    <Button 
-                      onClick={handleGoogleSignIn} 
-                      variant="outline" 
-                      className="w-full border-border/50 hover:bg-card/80" 
+                    <Button
+                      onClick={handleGoogleSignIn}
+                      variant="outline"
+                      className="w-full border-border/50 hover:bg-card/80"
                       disabled={loading}
+                      aria-label="Sign in with Google"
                     >
-                      {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                      {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" aria-hidden="true" /> : null}
                       Continue with Google
                     </Button>
                     
@@ -278,28 +279,32 @@ const Auth = () => {
                       </div>
                     </div>
 
-                    <form onSubmit={handleSignIn} className="space-y-4">
+                    <form onSubmit={handleSignIn} className="space-y-4" aria-label="Sign in form">
                       <div className="space-y-2">
                         <Label htmlFor="login-email">Email</Label>
-                        <Input 
-                          id="login-email" 
-                          type="email" 
-                          value={loginData.email} 
-                          onChange={(e) => setLoginData(prev => ({ ...prev, email: e.target.value }))} 
+                        <Input
+                          id="login-email"
+                          type="email"
+                          value={loginData.email}
+                          onChange={(e) => setLoginData(prev => ({ ...prev, email: e.target.value }))}
                           className="bg-background/50"
-                          required 
+                          required
+                          aria-required="true"
+                          autoComplete="email"
                         />
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="login-password">Password</Label>
                         <div className="relative">
-                          <Input 
-                            id="login-password" 
-                            type={showPassword.login ? "text" : "password"} 
-                            value={loginData.password} 
-                            onChange={(e) => setLoginData(prev => ({ ...prev, password: e.target.value }))} 
+                          <Input
+                            id="login-password"
+                            type={showPassword.login ? "text" : "password"}
+                            value={loginData.password}
+                            onChange={(e) => setLoginData(prev => ({ ...prev, password: e.target.value }))}
                             className="bg-background/50 pr-10"
-                            required 
+                            required
+                            aria-required="true"
+                            autoComplete="current-password"
                           />
                           <Button
                             type="button"
@@ -307,13 +312,14 @@ const Auth = () => {
                             size="sm"
                             className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
                             onClick={() => setShowPassword(prev => ({ ...prev, login: !prev.login }))}
+                            aria-label={showPassword.login ? "Hide password" : "Show password"}
                           >
-                            {showPassword.login ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                            {showPassword.login ? <EyeOff className="h-4 w-4" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
                           </Button>
                         </div>
                       </div>
-                      <Button type="submit" className="w-full bg-gradient-primary hover:opacity-90 transition-opacity" disabled={loading}>
-                        {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                      <Button type="submit" className="w-full bg-gradient-primary hover:opacity-90 transition-opacity" disabled={loading} aria-label="Sign in to your account">
+                        {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" aria-hidden="true" /> : null}
                         Sign In
                       </Button>
                     </form>
@@ -322,13 +328,14 @@ const Auth = () => {
 
                 <TabsContent value="signup" className="mt-6">
                   <div className="space-y-4">
-                    <Button 
-                      onClick={handleGoogleSignIn} 
-                      variant="outline" 
-                      className="w-full border-border/50 hover:bg-card/80" 
+                    <Button
+                      onClick={handleGoogleSignIn}
+                      variant="outline"
+                      className="w-full border-border/50 hover:bg-card/80"
                       disabled={loading}
+                      aria-label="Sign up with Google"
                     >
-                      {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                      {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" aria-hidden="true" /> : null}
                       Continue with Google
                     </Button>
                     
@@ -341,32 +348,37 @@ const Auth = () => {
                       </div>
                     </div>
 
-                    <form onSubmit={handleSignUp} className="space-y-4">
+                    <form onSubmit={handleSignUp} className="space-y-4" aria-label="Create account form">
                       <div className="space-y-2">
                         <Label htmlFor="signup-email">Email</Label>
-                        <Input 
-                          id="signup-email" 
-                          type="email" 
-                          value={signupData.email} 
-                          onChange={(e) => setSignupData(prev => ({ ...prev, email: e.target.value }))} 
+                        <Input
+                          id="signup-email"
+                          type="email"
+                          value={signupData.email}
+                          onChange={(e) => setSignupData(prev => ({ ...prev, email: e.target.value }))}
                           className="bg-background/50"
-                          required 
+                          required
+                          aria-required="true"
+                          autoComplete="email"
                         />
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="signup-password">Password</Label>
                         <div className="relative">
-                          <Input 
-                            id="signup-password" 
-                            type={showPassword.signup ? "text" : "password"} 
-                            value={signupData.password} 
+                          <Input
+                            id="signup-password"
+                            type={showPassword.signup ? "text" : "password"}
+                            value={signupData.password}
                             onChange={(e) => {
                               const newPassword = e.target.value;
                               setSignupData(prev => ({ ...prev, password: newPassword }));
                               setPasswordStrength(checkPasswordStrength(newPassword));
-                            }} 
+                            }}
                             className="bg-background/50 pr-10"
-                            required 
+                            required
+                            aria-required="true"
+                            aria-describedby="password-strength"
+                            autoComplete="new-password"
                           />
                           <Button
                             type="button"
@@ -374,20 +386,21 @@ const Auth = () => {
                             size="sm"
                             className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
                             onClick={() => setShowPassword(prev => ({ ...prev, signup: !prev.signup }))}
+                            aria-label={showPassword.signup ? "Hide password" : "Show password"}
                           >
-                            {showPassword.signup ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                            {showPassword.signup ? <EyeOff className="h-4 w-4" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
                           </Button>
                         </div>
                         {signupData.password && (
-                          <div className="space-y-1">
+                          <div className="space-y-1" id="password-strength" role="status" aria-live="polite">
                             <div className="flex justify-between text-xs">
                               <span>Password strength</span>
                               <span className={passwordStrength >= 3 ? "text-primary" : passwordStrength >= 2 ? "text-accent" : "text-destructive"}>
                                 {getPasswordStrengthText(passwordStrength)}
                               </span>
                             </div>
-                            <div className="w-full bg-muted rounded-full h-1">
-                              <div 
+                            <div className="w-full bg-muted rounded-full h-1" role="progressbar" aria-valuenow={(passwordStrength / 5) * 100} aria-valuemin={0} aria-valuemax={100} aria-label="Password strength indicator">
+                              <div
                                 className={`h-1 rounded-full transition-all ${getPasswordStrengthColor(passwordStrength)}`}
                                 style={{ width: `${(passwordStrength / 5) * 100}%` }}
                               />
@@ -395,8 +408,8 @@ const Auth = () => {
                           </div>
                         )}
                       </div>
-                      <Button type="submit" className="w-full bg-gradient-primary hover:opacity-90 transition-opacity" disabled={loading}>
-                        {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                      <Button type="submit" className="w-full bg-gradient-primary hover:opacity-90 transition-opacity" disabled={loading} aria-label="Create your account">
+                        {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" aria-hidden="true" /> : null}
                         Create Account
                       </Button>
                     </form>

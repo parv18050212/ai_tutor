@@ -13,10 +13,12 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAccessibility } from '@/contexts/AccessibilityContext';
 
 export function StepLearningGoals() {
   const navigate = useNavigate();
-  const { 
+  const { updateSetting } = useAccessibility();
+  const {
     stepZeroData,
     stepOneData,
     stepTwoData,
@@ -113,6 +115,15 @@ export function StepLearningGoals() {
 
       if (updateError) {
         throw updateError;
+      }
+
+      // Auto-enable TTS and STT for users with visual disabilities
+      if (stepThreeData.disabilityType === 'visual') {
+        updateSetting('textToSpeech', true);
+        updateSetting('speechToText', true);
+        updateSetting('ttsAutoPlay', true);
+
+        console.log('Auto-enabled TTS and STT for visual disability');
       }
 
       toast({

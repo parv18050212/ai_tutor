@@ -1,10 +1,19 @@
 fastapi
 uvicorn[standard]
 python-dotenv
+
+# Database & Authentication
 supabase
-google-generativeai
+PyJWT
+
+# AI & Language Models
+google-generativeai # Gemini for Socratic tutoring
+langchain            # RAG and vector search utilities
+
+# Voice Services
+openai              # Whisper STT & Realtime Voice API
+websockets          # WebSocket support for Realtime API
 pydantic
 pdfplumber
-langchain
 python-multipart
 httpx

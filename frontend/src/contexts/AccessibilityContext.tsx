@@ -11,6 +11,23 @@ export interface AccessibilitySettings {
   simplifyLanguage: boolean;
   colorBlindFriendly: boolean;
   chatScrolling: boolean;
+
+  // Audio & Speech Settings
+  textToSpeech: boolean;
+  speechToText: boolean;
+
+  // Voice Control Settings
+  voiceControlEnabled: boolean;
+  wakeWordEnabled: boolean;
+  autoTranscribe: boolean;
+  ttsAutoPlay: boolean;
+  ttsVoice: string;
+  ttsSpeed: number;  // 0.5 to 2.0
+  ttsPitch: string;  // "medium", "high", "low", etc.
+  ttsLanguage: string;
+  sttLanguage: string;  // Speech-to-text language
+  continuousListening: boolean;
+  showVoicePanel: boolean;
 }
 
 const defaultSettings: AccessibilitySettings = {
@@ -24,6 +41,23 @@ const defaultSettings: AccessibilitySettings = {
   simplifyLanguage: false,
   colorBlindFriendly: false,
   chatScrolling: true,
+
+  // Audio & Speech Defaults
+  textToSpeech: false,
+  speechToText: false,
+
+  // Voice Control Defaults
+  voiceControlEnabled: false,
+  wakeWordEnabled: false,
+  autoTranscribe: true,
+  ttsAutoPlay: false,
+  ttsVoice: 'Joanna',  // Default AWS Polly voice
+  ttsSpeed: 1.0,
+  ttsPitch: 'medium',
+  ttsLanguage: 'en-US',
+  sttLanguage: 'en',
+  continuousListening: false,
+  showVoicePanel: true,
 };
 
 interface AccessibilityContextType {

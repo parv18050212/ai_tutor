@@ -41,7 +41,7 @@ All colors MUST be HSL.
 
     /* Custom gradient and glow variables */
     --gradient-primary: linear-gradient(135deg, hsl(283 92% 37%), hsl(291 64% 42%));
-    --gradient-background: hsl(0 0% 100%);
+    --gradient-background: linear-gradient(135deg, hsl(283 92% 97%), hsl(291 64% 95%));
     --glow-primary: 0 0 40px hsl(283 92% 37% / 0.3);
     --glow-secondary: 0 0 80px hsl(340 82% 52% / 0.2);
     
@@ -105,7 +105,7 @@ All colors MUST be HSL.
     --sidebar-ring: 217.2 91.2% 59.8%;
 
     /* Dark mode gradients */
-    --gradient-background: hsl(0 0% 0%);
+    --gradient-background: linear-gradient(135deg, hsl(0 0% 5%), hsl(283 20% 10%));
   }
 }
 
@@ -121,6 +121,30 @@ All colors MUST be HSL.
     min-height: 100vh;
     font-size: 16px;
     line-height: 1.5;
+  }
+
+  /* Enhanced Focus Indicators for Accessibility */
+  *:focus-visible {
+    outline: 3px solid hsl(var(--primary));
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible {
+    outline: 3px solid hsl(var(--primary));
+    outline-offset: 2px;
+    box-shadow: 0 0 0 4px hsl(var(--primary) / 0.2);
+  }
+
+  /* High contrast mode focus */
+  .accessibility-high-contrast *:focus-visible {
+    outline: 4px solid hsl(0 0% 100%);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 6px hsl(0 0% 0%);
   }
 
   /* Typography styles matching brand guide */

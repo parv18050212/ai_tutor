@@ -50,3 +50,33 @@ async def get_current_user(authorization: str = Header(None)):
 
     except jwt_exceptions.PyJWTError as e:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid token: {e}")
+
+
+def verify_token(token: str) -> str:
+    """
+    Verify JWT token and return user ID (for WebSocket authentication)
+
+    Args:
+        token: JWT token string
+
+    Returns:
+        str: User ID from the token
+
+    Raises:
+        HTTPException: If token is invalid
+    """
+    try:
+        if SUPABASE_JWT_SECRET:
+            decoded = jwt.decode(token, SUPABASE_JWT_SECRET, algorithms=["HS256"], options={"verify_aud": False})
+        else:
+            logging.warning("SUPABASE_JWT_SECRET not set — decoding token WITHOUT verification (dev only).")
+            decoded = jwt.decode(token, options={"verify_signature": False})
+
+        user_id = decoded.get("sub") or decoded.get("user_id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Token missing user id")
+
+        return user_id
+
+    except jwt_exceptions.PyJWTError as e:
+        raise HTTPException(status_code=401, detail=f"Invalid token: {e}")

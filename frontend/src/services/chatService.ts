@@ -178,5 +178,61 @@ export const chatService = {
   healthCheck: async (): Promise<{ status: string; message: string }> => {
     const response = await api.get('/api/health');
     return response.data;
-  }
+  },
+
+  // Voice API - Transcribe audio with Whisper
+  transcribeAudio: async (formData: FormData): Promise<{
+    text: string;
+    language?: string;
+    confidence?: number;
+    duration_ms?: number;
+  }> => {
+    const response = await api.post('/api/voice/transcribe', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  },
+
+  // Voice API - Synthesize speech with Gemini TTS
+  synthesizeSpeech: async (request: {
+    text: string;
+    language?: string;
+    voice?: string;
+    speed?: number;
+  }): Promise<{
+    audio_base64: string;
+    duration_ms: number;
+    text_length: number;
+  }> => {
+    const response = await api.post('/api/voice/synthesize', request);
+    return response.data;
+  },
+
+  // Voice API - Get available voices
+  getAvailableVoices: async (languageCode?: string): Promise<{
+    voices: Array<{
+      name: string;
+      language_codes: string[];
+      gender: string;
+      natural_sample_rate?: number;
+    }>;
+    count: number;
+  }> => {
+    const params = languageCode ? { language_code: languageCode } : {};
+    const response = await api.get('/api/voice/voices', { params });
+    return response.data;
+  },
+
+  // Voice API - Health check
+  voiceHealthCheck: async (): Promise<{
+    status: string;
+    whisper_available: boolean;
+    tts_available: boolean;
+    whisper_model?: string;
+  }> => {
+    const response = await api.get('/api/voice/health');
+    return response.data;
+  },
 };

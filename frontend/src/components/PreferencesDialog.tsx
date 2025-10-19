@@ -21,8 +21,9 @@ import { useAccessibility } from "@/contexts/AccessibilityContext";
 import { getAllExams } from "@/lib/subjects-data";
 import { DISABILITY_TYPES, FORMAT_PREFERENCES, LEARNING_SPEEDS } from "@/lib/onboarding-schemas";
 import { cleanupAuthState } from "@/lib/auth";
-import { useA2ASpeech } from "@/hooks/useA2ASpeech";
+import { useBrowserTTS } from "@/hooks/useBrowserTTS";
 import { Slider } from "@/components/ui/slider";
+import { ACCESSIBILITY_NEEDS, GRADE_LEVELS, COMMON_LANGUAGES, ACCESSIBILITY_PRESETS, VOICE_AGENT_FEATURES } from "@/lib/accessibility-constants";
 
 type GradeLevel = "elementary" | "middle_school" | "high_school" | "undergraduate" | "graduate" | "other" | "11" | "12";
 
@@ -53,11 +54,10 @@ export function PreferencesDialog({ children }: PreferencesDialogProps) {
   const { theme, setTheme } = useTheme();
   const navigate = useNavigate();
 
-  // A2A Speech hooks
-  const { getVoices, getTTSLanguages, getSTTLanguages, synthesizeSpeech, isSynthesizing } = useA2ASpeech();
+  // Browser TTS hook
+  const { loadVoices, voices, speak, isSpeaking } = useBrowserTTS();
 
   // Voice options state
-  const [availableVoices, setAvailableVoices] = useState<any[]>([]);
   const [ttsLanguages, setTtsLanguages] = useState<any[]>([]);
   const [sttLanguages, setSttLanguages] = useState<any[]>([]);
   const [loadingVoices, setLoadingVoices] = useState(false);
@@ -268,12 +268,34 @@ export function PreferencesDialog({ children }: PreferencesDialogProps) {
   const loadVoiceOptions = async () => {
     setLoadingVoices(true);
     try {
-      const [voices, languages] = await Promise.all([
-        getVoices(accessibilitySettings.ttsLanguage),
-        getTTSLanguages()
-      ]);
-      setAvailableVoices(voices);
-      setTtsLanguages(languages);
+      // Load voices from browser (happens automatically in the hook)
+      loadVoices();
+
+      // Get unique languages from available voices
+      const uniqueLanguages = Array.from(
+        new Set(voices.map(v => v.lang))
+      ).map(lang => ({
+        code: lang,
+        name: new Intl.DisplayNames(['en'], { type: 'language' }).of(lang.split('-')[0]) || lang
+      }));
+
+      // Set TTS languages from browser voices
+      if (uniqueLanguages.length > 0) {
+        setTtsLanguages(uniqueLanguages);
+      } else {
+        // Fallback to common languages
+        setTtsLanguages([
+          { code: 'en-US', name: 'English (US)' },
+          { code: 'en-GB', name: 'English (UK)' },
+          { code: 'es-ES', name: 'Spanish' },
+          { code: 'fr-FR', name: 'French' },
+          { code: 'de-DE', name: 'German' },
+          { code: 'it-IT', name: 'Italian' },
+          { code: 'pt-BR', name: 'Portuguese' },
+          { code: 'ja-JP', name: 'Japanese' },
+          { code: 'ko-KR', name: 'Korean' },
+        ]);
+      }
     } catch (error) {
       console.error('Failed to load voice options:', error);
     } finally {
@@ -283,8 +305,21 @@ export function PreferencesDialog({ children }: PreferencesDialogProps) {
 
   const loadLanguageOptions = async () => {
     try {
-      const languages = await getSTTLanguages();
-      setSttLanguages(languages);
+      // Set STT languages (Web Speech API supports many languages)
+      setSttLanguages([
+        { code: 'en-US', name: 'English (US)' },
+        { code: 'en-GB', name: 'English (UK)' },
+        { code: 'es-ES', name: 'Spanish' },
+        { code: 'fr-FR', name: 'French' },
+        { code: 'de-DE', name: 'German' },
+        { code: 'it-IT', name: 'Italian' },
+        { code: 'pt-BR', name: 'Portuguese' },
+        { code: 'ja-JP', name: 'Japanese' },
+        { code: 'ko-KR', name: 'Korean' },
+        { code: 'zh-CN', name: 'Chinese (Simplified)' },
+        { code: 'hi-IN', name: 'Hindi' },
+        { code: 'ar-SA', name: 'Arabic' },
+      ]);
     } catch (error) {
       console.error('Failed to load STT languages:', error);
     }
@@ -292,17 +327,18 @@ export function PreferencesDialog({ children }: PreferencesDialogProps) {
 
   const handleTestVoice = async () => {
     try {
-      const audioUrl = await synthesizeSpeech(
+      // Find selected voice from browser voices
+      const selectedVoice = voices.find(v => v.name === accessibilitySettings.ttsVoice);
+
+      speak(
         'Hello! This is a test of the text to speech system.',
         {
-          voice: accessibilitySettings.ttsVoice,
-          language: accessibilitySettings.ttsLanguage,
-          speed: accessibilitySettings.ttsSpeed,
-          pitch: accessibilitySettings.ttsPitch
+          voice: selectedVoice || undefined,
+          rate: accessibilitySettings.ttsSpeed,
+          lang: accessibilitySettings.ttsLanguage,
         }
       );
-      const audio = new Audio(audioUrl);
-      audio.play();
+
       toast({
         title: "Playing test voice...",
       });
@@ -353,34 +389,34 @@ export function PreferencesDialog({ children }: PreferencesDialogProps) {
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Settings className="h-5 w-5" />
+            <Settings className="h-5 w-5" aria-hidden="true" />
             Preferences
           </DialogTitle>
           <DialogDescription>
             Manage your profile, learning preferences, and accessibility settings.
           </DialogDescription>
         </DialogHeader>
-        
+
         <Tabs defaultValue="profile" className="w-full">
-          <TabsList className="grid w-full grid-cols-5">
-            <TabsTrigger value="profile" className="flex items-center gap-2">
-              <User className="h-4 w-4" />
+          <TabsList className="grid w-full grid-cols-5" role="tablist" aria-label="Preferences sections">
+            <TabsTrigger value="profile" className="flex items-center gap-2" role="tab" aria-label="Profile settings">
+              <User className="h-4 w-4" aria-hidden="true" />
               Profile
             </TabsTrigger>
-            <TabsTrigger value="learning" className="flex items-center gap-2">
-              <BookOpen className="h-4 w-4" />
+            <TabsTrigger value="learning" className="flex items-center gap-2" role="tab" aria-label="Learning preferences">
+              <BookOpen className="h-4 w-4" aria-hidden="true" />
               Learning
             </TabsTrigger>
-            <TabsTrigger value="accessibility" className="flex items-center gap-2">
-              <Accessibility className="h-4 w-4" />
+            <TabsTrigger value="accessibility" className="flex items-center gap-2" role="tab" aria-label="Accessibility settings">
+              <Accessibility className="h-4 w-4" aria-hidden="true" />
               Accessibility
             </TabsTrigger>
-            <TabsTrigger value="display" className="flex items-center gap-2">
-              <Settings className="h-4 w-4" />
+            <TabsTrigger value="display" className="flex items-center gap-2" role="tab" aria-label="Display settings">
+              <Settings className="h-4 w-4" aria-hidden="true" />
               Display
             </TabsTrigger>
-            <TabsTrigger value="account" className="flex items-center gap-2">
-              <LogOut className="h-4 w-4" />
+            <TabsTrigger value="account" className="flex items-center gap-2" role="tab" aria-label="Account management">
+              <LogOut className="h-4 w-4" aria-hidden="true" />
               Account
             </TabsTrigger>
           </TabsList>
@@ -423,14 +459,11 @@ export function PreferencesDialog({ children }: PreferencesDialogProps) {
                       <SelectValue placeholder="Select your grade level" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="elementary">Elementary School</SelectItem>
-                      <SelectItem value="middle_school">Middle School</SelectItem>
-                      <SelectItem value="high_school">High School</SelectItem>
-                      <SelectItem value="11">Grade 11</SelectItem>
-                      <SelectItem value="12">Grade 12</SelectItem>
-                      <SelectItem value="undergraduate">Undergraduate</SelectItem>
-                      <SelectItem value="graduate">Graduate</SelectItem>
-                      <SelectItem value="other">Other</SelectItem>
+                      {GRADE_LEVELS.map((grade) => (
+                        <SelectItem key={grade.value} value={grade.value}>
+                          {grade.label}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -542,6 +575,44 @@ export function PreferencesDialog({ children }: PreferencesDialogProps) {
           </TabsContent>
 
           <TabsContent value="accessibility" className="space-y-6">
+            {/* Quick Presets Card */}
+            <Card className="bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-950 dark:to-pink-950 border-purple-200 dark:border-purple-800">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-purple-900 dark:text-purple-100">
+                  <Settings className="h-5 w-5" />
+                  Quick Presets
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  <p className="text-sm text-purple-800 dark:text-purple-200">
+                    Apply recommended settings for common accessibility needs
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                    {ACCESSIBILITY_PRESETS.slice(0, 3).map((preset) => (
+                      <Button
+                        key={preset.id}
+                        variant="outline"
+                        className="h-auto py-3 px-4 flex flex-col items-start gap-1"
+                        onClick={() => {
+                          // Apply all settings from the preset
+                          Object.entries(preset.settings).forEach(([key, value]) => {
+                            updateAccessibilitySetting(key as any, value);
+                          });
+                          toast({ title: `${preset.name} preset applied` });
+                        }}
+                      >
+                        <span className="font-semibold">{preset.icon} {preset.name}</span>
+                        <span className="text-xs text-muted-foreground text-left">
+                          {preset.description}
+                        </span>
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
             <Card>
               <CardHeader>
                 <CardTitle>Accessibility Needs</CardTitle>
@@ -569,15 +640,7 @@ export function PreferencesDialog({ children }: PreferencesDialogProps) {
                 <div>
                   <Label>Additional Accessibility Features</Label>
                   <div className="grid grid-cols-1 gap-2 mt-2">
-                    {[
-                      "High contrast text",
-                      "Large text size",
-                      "Dyslexia-friendly fonts",
-                      "Screen reader compatible",
-                      "Keyboard navigation",
-                      "Reduced motion",
-                      "Color blind friendly"
-                    ].map((need) => (
+                    {ACCESSIBILITY_NEEDS.map((need) => (
                       <div key={need} className="flex items-center space-x-2">
                         <Checkbox
                           id={need}
@@ -605,17 +668,18 @@ export function PreferencesDialog({ children }: PreferencesDialogProps) {
                   <div className="flex items-center justify-between">
                     <div>
                       <Label htmlFor="tts" className="flex items-center gap-2">
-                        <Volume2 className="h-4 w-4" />
+                        <Volume2 className="h-4 w-4" aria-hidden="true" />
                         Text-to-Speech
                       </Label>
                       <p className="text-sm text-muted-foreground">
-                        Powered by Google Cloud Neural2 TTS
+                        Powered by Browser Web Speech API
                       </p>
                     </div>
                     <Switch
                       id="tts"
                       checked={accessibilitySettings.textToSpeech}
                       onCheckedChange={(checked) => updateAccessibilitySetting('textToSpeech', checked)}
+                      aria-label="Enable text-to-speech"
                     />
                   </div>
 
@@ -641,14 +705,14 @@ export function PreferencesDialog({ children }: PreferencesDialogProps) {
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              {availableVoices.length > 0 ? (
-                                availableVoices.slice(0, 10).map((voice) => (
+                              {voices.length > 0 ? (
+                                voices.map((voice) => (
                                   <SelectItem key={voice.name} value={voice.name}>
-                                    {voice.name} ({voice.gender})
+                                    {voice.name} ({voice.lang})
                                   </SelectItem>
                                 ))
                               ) : (
-                                <SelectItem value="en-US-Neural2-C">en-US-Neural2-C (FEMALE)</SelectItem>
+                                <SelectItem value="Default">Default Voice</SelectItem>
                               )}
                             </SelectContent>
                           </Select>
@@ -718,19 +782,20 @@ export function PreferencesDialog({ children }: PreferencesDialogProps) {
                       {/* Test Voice Button */}
                       <Button
                         onClick={handleTestVoice}
-                        disabled={isSynthesizing}
+                        disabled={isSpeaking}
                         variant="outline"
                         size="sm"
                         className="w-full"
+                        aria-label="Test current voice settings"
                       >
-                        {isSynthesizing ? (
+                        {isSpeaking ? (
                           <>
-                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" aria-hidden="true" />
                             Testing...
                           </>
                         ) : (
                           <>
-                            <Play className="h-4 w-4 mr-2" />
+                            <Play className="h-4 w-4 mr-2" aria-hidden="true" />
                             Test Voice
                           </>
                         )}
@@ -746,17 +811,18 @@ export function PreferencesDialog({ children }: PreferencesDialogProps) {
                   <div className="flex items-center justify-between">
                     <div>
                       <Label htmlFor="stt" className="flex items-center gap-2">
-                        <Mic className="h-4 w-4" />
+                        <Mic className="h-4 w-4" aria-hidden="true" />
                         Speech-to-Text
                       </Label>
                       <p className="text-sm text-muted-foreground">
-                        Powered by Local Whisper (92%+ accuracy)
+                        Powered by Browser Web Speech API
                       </p>
                     </div>
                     <Switch
                       id="stt"
                       checked={accessibilitySettings.speechToText}
                       onCheckedChange={(checked) => updateAccessibilitySetting('speechToText', checked)}
+                      aria-label="Enable speech-to-text"
                     />
                   </div>
 
@@ -797,6 +863,100 @@ export function PreferencesDialog({ children }: PreferencesDialogProps) {
                       <p className="text-xs text-muted-foreground">
                         💡 Click the microphone icon in the chat to start voice input
                       </p>
+                    </div>
+                  )}
+                </div>
+
+                <Separator />
+
+                {/* Voice Agent - OpenAI Realtime */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label htmlFor="voice-agent" className="flex items-center gap-2">
+                        <Volume2 className="h-4 w-4 text-blue-600" aria-hidden="true" />
+                        <span className="font-semibold">Premium Voice Agent</span>
+                        <span className="text-xs bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-2 py-0.5 rounded-full">
+                          BETA
+                        </span>
+                      </Label>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Ultra-low latency AI voice conversations (~320ms)
+                      </p>
+                      <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                        ⚡ Powered by OpenAI Realtime API • Internet required
+                      </p>
+                    </div>
+                    <Switch
+                      id="voice-agent"
+                      checked={accessibilitySettings.voiceControlEnabled}
+                      onCheckedChange={(checked) => updateAccessibilitySetting('voiceControlEnabled', checked)}
+                      aria-label="Enable premium voice agent"
+                    />
+                  </div>
+
+                  {/* Voice Agent Info Panel */}
+                  {accessibilitySettings.voiceControlEnabled && (
+                    <div className="ml-6 space-y-4 p-4 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950 dark:to-indigo-950 rounded-lg border border-blue-200 dark:border-blue-800">
+                      <div className="space-y-2">
+                        <h4 className="text-sm font-medium text-blue-900 dark:text-blue-100">
+                          How Voice Agent Works
+                        </h4>
+                        <ul className="text-xs text-blue-800 dark:text-blue-200 space-y-1 ml-4 list-disc">
+                          <li>Click the 📞 phone icon in chat to activate</li>
+                          <li><strong>AI greets you first</strong> - perfect for blind users</li>
+                          <li>Speak naturally - AI responds with voice instantly</li>
+                          <li>Same Socratic tutoring logic as text chat</li>
+                          <li>All conversations are saved to history</li>
+                        </ul>
+                      </div>
+
+                      <Separator className="bg-blue-200 dark:bg-blue-800" />
+
+                      <div className="space-y-2">
+                        <h4 className="text-sm font-medium text-blue-900 dark:text-blue-100">
+                          💰 Cost Estimate
+                        </h4>
+                        <div className="text-xs text-blue-800 dark:text-blue-200 space-y-1">
+                          <div className="flex justify-between">
+                            <span>10-minute session:</span>
+                            <span className="font-semibold">~$1.50</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>30-minute session:</span>
+                            <span className="font-semibold">~$4.50</span>
+                          </div>
+                          <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
+                            ℹ️ Charges apply when using voice mode
+                          </p>
+                        </div>
+                      </div>
+
+                      <Separator className="bg-blue-200 dark:bg-blue-800" />
+
+                      <div className="space-y-2">
+                        <h4 className="text-sm font-medium text-blue-900 dark:text-blue-100">
+                          ✨ Features
+                        </h4>
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                          <div className="flex items-center gap-1 text-blue-800 dark:text-blue-200">
+                            <span className="text-green-600">✓</span>
+                            <span>Ultra-low latency</span>
+                          </div>
+                          <div className="flex items-center gap-1 text-blue-800 dark:text-blue-200">
+                            <span className="text-green-600">✓</span>
+                            <span>Natural voices</span>
+                          </div>
+                          <div className="flex items-center gap-1 text-blue-800 dark:text-blue-200">
+                            <span className="text-green-600">✓</span>
+                            <span>Auto voice detection</span>
+                          </div>
+                          <div className="flex items-center gap-1 text-blue-800 dark:text-blue-200">
+                            <span className="text-green-600">✓</span>
+                            <span>Live transcription</span>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -919,11 +1079,11 @@ export function PreferencesDialog({ children }: PreferencesDialogProps) {
 
         <Separator />
         
-        <div className="flex justify-end space-x-2">
-          <Button variant="outline" onClick={() => setOpen(false)}>
+        <div className="flex justify-end space-x-2" role="group" aria-label="Preferences actions">
+          <Button variant="outline" onClick={() => setOpen(false)} aria-label="Cancel and close preferences">
             Cancel
           </Button>
-          <Button onClick={handleSave} disabled={loading}>
+          <Button onClick={handleSave} disabled={loading} aria-label="Save preferences and close">
             {loading ? "Saving..." : "Save Preferences"}
           </Button>
         </div>

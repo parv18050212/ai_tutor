@@ -1,6 +1,11 @@
 # main.py
 import os
 from dotenv import load_dotenv
+
+# IMPORTANT: Load .env BEFORE importing other modules
+# This ensures OPENAI_API_KEY is available when voice modules load
+load_dotenv()
+
 from supabase import create_client, Client
 import google.generativeai as genai
 from fastapi import FastAPI, Depends, HTTPException, Header, status
@@ -15,8 +20,9 @@ import uuid
 from auth import get_current_user
 from quiz import router as quiz_router, init_quiz_module
 from smart_suggestions import router as suggestions_router, init_suggestions_module
+from voice_router import router as voice_router
+from realtime_voice import router as realtime_voice_router
 
-load_dotenv()
 logging.basicConfig(level=logging.INFO)
 
 # Configure Google AI
@@ -107,22 +113,44 @@ def get_or_create_session(user_id: str, exam_id: str, subject_id: str, chapter_i
         raise HTTPException(status_code=500, detail=f"Session management failed: {e}")
 
 def get_session_chat_history(session_id: str, limit: int = 6):
-    """Get chat history for a specific session"""
+    """
+    Get chat history for a specific session with conversation summary.
+
+    Returns:
+        dict with keys:
+            - 'messages': list of recent messages
+            - 'summary': conversation summary (str or None)
+    """
     try:
+        # Fetch recent messages
         resp = supabase.table("chat_history") \
             .select("role, message, created_at") \
             .eq("session_id", session_id) \
             .order("created_at", desc=True) \
             .limit(limit) \
             .execute()
-        rows = resp.data or []
-        return list(reversed(rows))
+        messages = list(reversed(resp.data or []))
+
+        # Fetch conversation summary from chat_sessions
+        session_resp = supabase.table("chat_sessions") \
+            .select("conversation_summary") \
+            .eq("id", session_id) \
+            .single() \
+            .execute()
+
+        summary = session_resp.data.get("conversation_summary") if session_resp.data else None
+
+        return {
+            "messages": messages,
+            "summary": summary
+        }
+
     except Exception as e:
         logging.exception("Failed to fetch session chat history")
-        return []
+        return {"messages": [], "summary": None}
 
 def save_session_chat_turn(user_id: str, session_id: str, role: str, message: str):
-    """Save chat turn with session context"""
+    """Save chat turn with session context and trigger auto-summarization"""
     try:
         # Insert chat message
         supabase.table("chat_history").insert({
@@ -142,6 +170,31 @@ def save_session_chat_turn(user_id: str, session_id: str, role: str, message: st
             .eq("id", session_id) \
             .execute()
 
+        # Auto-summarization trigger: Every 10 messages, generate summary
+        if role == "assistant":  # Trigger after assistant responds
+            try:
+                # Get current message count
+                session_resp = supabase.table("chat_sessions") \
+                    .select("message_count") \
+                    .eq("id", session_id) \
+                    .single() \
+                    .execute()
+
+                message_count = session_resp.data.get("message_count", 0) if session_resp.data else 0
+
+                # Trigger summarization every 10 messages
+                if message_count > 0 and message_count % 10 == 0:
+                    logging.info(f"Triggering auto-summarization for session {session_id} at {message_count} messages")
+                    # Summarize messages from (message_count - 10) to (message_count - 6)
+                    # This keeps last 6 messages unsummarized for the sliding window
+                    start_idx = max(0, message_count - 16)
+                    end_idx = message_count - 6
+                    generate_conversation_summary(session_id, start_idx, end_idx)
+
+            except Exception as summary_error:
+                # Don't fail the save operation if summarization fails
+                logging.error(f"Auto-summarization failed (non-critical): {summary_error}")
+
     except Exception as e:
         logging.exception("Failed to save session chat turn")
 
@@ -159,6 +212,83 @@ def get_chat_history(user_id: str, limit: int = 6):
     except Exception as e:
         logging.exception("Failed to fetch chat history")
         return []
+
+def generate_conversation_summary(session_id: str, start_index: int = 0, end_index: int = 20):
+    """
+    Generate AI summary of conversation history for memory optimization.
+
+    Args:
+        session_id: The chat session ID
+        start_index: Starting message index (0 = oldest message in session)
+        end_index: Ending message index
+
+    Returns:
+        Summary string or None if failed
+    """
+    try:
+        # Fetch messages in the range to summarize
+        resp = supabase.table("chat_history") \
+            .select("role, message, created_at") \
+            .eq("session_id", session_id) \
+            .order("created_at", desc=False) \
+            .execute()
+
+        all_messages = resp.data or []
+        messages_to_summarize = all_messages[start_index:end_index]
+
+        if not messages_to_summarize:
+            logging.warning(f"No messages to summarize for session {session_id}")
+            return None
+
+        # Format messages for summarization
+        conversation_text = "\n".join([
+            f"{msg['role']}: {msg['message']}"
+            for msg in messages_to_summarize
+        ])
+
+        # Create summarization prompt
+        summary_prompt = f"""You are summarizing a tutoring conversation for memory optimization.
+
+Conversation to summarize:
+{conversation_text}
+
+Create a concise summary (3-5 sentences) that captures:
+1. Main topics discussed
+2. Student's current understanding level
+3. Key concepts explained
+4. Areas where student struggled or asked for clarification
+
+Focus on information that would help continue the tutoring session effectively."""
+
+        # Generate summary using Gemini
+        model = genai.GenerativeModel("gemini-2.5-flash")
+        response = model.generate_content(
+            summary_prompt,
+            generation_config={
+                "temperature": 0.1,
+                "top_p": 0.1,
+                "top_k": 20,
+                "max_output_tokens": 256
+            }
+        )
+
+        summary = getattr(response, "text", None) or str(response)
+        logging.info(f"Generated conversation summary for session {session_id}: {len(summary)} chars")
+
+        # Update chat_sessions with the summary
+        supabase.table("chat_sessions") \
+            .update({
+                "conversation_summary": summary,
+                "last_summarized_at": datetime.now().isoformat()
+            }) \
+            .eq("id", session_id) \
+            .execute()
+
+        return summary
+
+    except Exception as e:
+        logging.exception(f"Failed to generate conversation summary: {e}")
+        return None
 
 def get_cognitive_adaptive_prompt(accessibility_settings: dict) -> str:
     """Generate accessibility adaptations for cognitive disabilities"""
@@ -214,12 +344,12 @@ def detect_frustration_markers(user_response: str) -> bool:
 def provide_emotional_support(response: str, is_frustrated: bool = False) -> str:
     """Add emotional support to responses when needed"""
     if is_frustrated:
-        encouragement = """🌟 **It's okay!** Learning takes time, and you're doing great by asking questions.
+        encouragement = """🌟 It's okay! Learning takes time, and you're doing great by asking questions.
 
 """
         closing = """
 
-💪 **Remember**: Every expert was once a beginner. You've got this! Let's break this down into smaller steps."""
+💪 Remember: Every expert was once a beginner. You've got this! Let's break this down into smaller steps."""
         return f"{encouragement}{response}{closing}"
     return response
 
@@ -266,22 +396,47 @@ You are "Newton," an expert AI Socratic tutor specializing in {exam_name} prepar
 
 **Core Directives (Follow these STRICTLY):**
 
-1. **NEVER give the final answer directly.** Your purpose is to guide through questions, not to tell.
+1. **Explain when introducing NEW concepts (Mode 0), then guide with questions (Mode 1).** NEVER give away final answers to practice problems or homework.
+
 2. **ALWAYS end your response with ONE open-ended guiding question** that probes their understanding or leads them to the next logical step.
+
 3. **Stay focused on {chapter_name}** - relate all discussions back to this chapter's key concepts.
+
 4. **Source of Truth:** Base all guidance strictly on the provided context and chat history. Do not introduce outside information.
 
-**Your Teaching Method:**
+5. **Input Handling:** If the student's question contains typos, grammatical errors, or unclear wording (common with voice input), INFER their intent and respond naturally. Do NOT point out typos or errors unless they fundamentally change the meaning. Examples:
+   - "what us matrix" → interpret as "what is a matrix"
+   - "explai matrices" → interpret as "explain matrices"
+   - "how do i multipy matrix" → interpret as "how do i multiply matrices"
+   - "wat r eigenvalues" → interpret as "what are eigenvalues"
+   - If you truly cannot understand despite errors, ask: "I want to help! Could you clarify what topic you're asking about?"
 
-* **Mode 1: Socratic Guiding (Your Default Mode)**
-    * Acknowledge their question and provide a tiny nudge (max 2 sentences)
-    * Ask a clarifying or leading question specific to {chapter_name} concepts
-    * If they struggle, provide up to two very short hints (under 15 words each) as questions
+6. **Empty Context Handling:** If the provided course material is empty or doesn't contain information about their question, say: "I don't see that topic in our {chapter_name} materials yet. Could you ask about a topic from this chapter, or try rephrasing your question?"
 
-* **Mode 2: Explaining (Fallback Mode)**
-    * **Trigger:** Only when student explicitly says "I don't know," "give me the answer," "explain it," or shows clear frustration
-    * **Action:** Provide a concise, step-by-step explanation (max 3 steps, under 80 words) using the context
-    * **Re-engage:** Ask "Would you like to try a related {chapter_name} practice problem to solidify your understanding?"
+**Your Teaching Method (Choose the Right Mode):**
+
+* **Mode 0: Introduction (Use When Student Asks "What is X?" or is Learning New Concept)**
+    * **Trigger:** Student asks "what is", "explain", "define", "introduce", "tell me about", or mentions they haven't learned this yet
+    * **Action:**
+        - Provide a clear, concise explanation (2-3 sentences, max 60 words)
+        - Use ONLY the provided context - don't make up information
+        - Give a simple example if available in the context
+        - End with ONE engaging question to check understanding or relate to real-world
+    * **Example Format:** "[Clear definition]. [Simple example from context]. [One engaging question]"
+
+* **Mode 1: Socratic Guiding (Use for Follow-ups, Practice, Deeper Understanding)**
+    * **Trigger:** Student has baseline understanding and asks follow-up questions, requests practice, or wants to go deeper
+    * **Action:**
+        - Acknowledge their question with a tiny nudge (max 2 sentences)
+        - Ask a clarifying or leading question specific to {chapter_name} concepts
+        - If they struggle, provide up to two very short hints (under 15 words each) as questions
+
+* **Mode 2: Explaining (Use When Student is Stuck/Frustrated)**
+    * **Trigger:** Student explicitly says "I don't know," "I'm stuck," "give me the answer," "explain it," or shows clear frustration
+    * **Action:**
+        - Provide a step-by-step explanation (max 3 steps, under 80 words) using the context
+        - Make it relatable to {chapter_name}
+        - Re-engage: Ask "Would you like to try a related practice problem to solidify your understanding?"
 
 **Chapter-Specific Guidance:**
 Connect every concept to {chapter_name} and help them see how this fits into their {exam_name} {subject_name} preparation.
@@ -356,9 +511,20 @@ async def chat(request: ChatRequest, user_id: str = Depends(get_current_user)):
     except Exception as e:
         return {"error": f"Chunk search failed: {e}"}
 
-    # 4. Get session-specific history (instead of all user history)
-    history_rows = get_session_chat_history(session_id, limit=6)
-    history_text = "\n".join([f"{r.get('role')}: {r.get('message')}" for r in history_rows])
+    # 4. Get session-specific history with conversation summary
+    history_data = get_session_chat_history(session_id, limit=6)
+    messages = history_data.get("messages", [])
+    summary = history_data.get("summary")
+
+    # Format history: [Optional Summary] + Recent Messages
+    history_parts = []
+    if summary:
+        history_parts.append(f"[Previous Conversation Summary]\n{summary}\n")
+    if messages:
+        history_parts.append("[Recent Messages]")
+        history_parts.extend([f"{msg.get('role')}: {msg.get('message')}" for msg in messages])
+
+    history_text = "\n".join(history_parts) if history_parts else ""
 
     # 5. Dynamic prompt based on educational context and accessibility
     prompt_template = get_dynamic_socratic_prompt(
@@ -375,7 +541,7 @@ async def chat(request: ChatRequest, user_id: str = Depends(get_current_user)):
         response = model.generate_content(
             prompt,
             generation_config={
-                "temperature": 0,
+                "temperature":0.1,
                 "top_p": 0.1,
                 "top_k": 40,
                 "max_output_tokens": 512
@@ -393,7 +559,11 @@ async def chat(request: ChatRequest, user_id: str = Depends(get_current_user)):
             answer = add_memory_scaffold(answer, request.chapter_name, request.accessibility_settings)
 
     except Exception as e:
-        return {"error": f"LLM call failed: {e}"}
+        logging.error(f"LLM call failed: {str(e)}")
+        return {
+            "error": "I had trouble understanding your question. Could you try rephrasing it? "
+                     "For example: 'What is a matrix?' or 'Explain this concept to me.'"
+        }
 
     # 7. Save turns with session context
     save_session_chat_turn(user_id, session_id, "user", question)
@@ -499,3 +669,9 @@ app.include_router(quiz_router)
 # Initialize smart suggestions module and include router
 init_suggestions_module(supabase, get_current_user)
 app.include_router(suggestions_router)
+
+# Include voice router
+app.include_router(voice_router)
+
+# Include realtime voice router
+app.include_router(realtime_voice_router)

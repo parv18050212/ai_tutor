@@ -336,14 +336,14 @@ const Dashboard = () => {
       </div>
 
       {/* Professional Header */}
-      <header className="relative z-10 p-6 pb-0">
+      <header className="relative z-10 p-6 pb-0" role="banner">
         <div className="max-w-6xl mx-auto">
           <div className="flex items-center justify-between mb-8">
             <div className="space-y-2">
               <h1 className="text-3xl lg:text-4xl font-bold bg-gradient-primary bg-clip-text text-transparent">
                 AI Tutor Atypical Academy
               </h1>
-              <p className="text-muted-foreground">
+              <p className="text-muted-foreground" role="status" aria-live="polite">
                 {currentExam ? `Studying for ${currentExam.name}` : 'Complete your setup to get started'}
               </p>
             </div>
@@ -368,7 +368,7 @@ const Dashboard = () => {
         </div>
       </header>
 
-      <main className="relative z-10 px-6">
+      <main className="relative z-10 px-6" role="main">
         <div className="max-w-6xl mx-auto space-y-8">
 
           {/* Backend Health Check - DEV ONLY */}
@@ -389,21 +389,23 @@ const Dashboard = () => {
                 <Button
                   onClick={handleResumeLastSession}
                   className="h-20 bg-gradient-primary hover:opacity-90 transition-opacity flex flex-col gap-2"
+                  aria-label="Resume your last learning session"
                 >
-                  <Clock className="h-6 w-6" />
+                  <Clock className="h-6 w-6" aria-hidden="true" />
                   <span>Resume Last Session</span>
                 </Button>
                 <Button
                   onClick={handleSuggestedRevision}
                   variant="outline"
                   className="h-20 border-border/50 text-foreground hover:bg-accent hover:text-accent-foreground flex flex-col gap-2 backdrop-blur-sm relative"
+                  aria-label={smartSuggestions?.recommendations?.length > 0 ? 'View smart study suggestions' : 'Get study suggestions'}
                 >
-                  <Brain className="h-6 w-6" />
+                  <Brain className="h-6 w-6" aria-hidden="true" />
                   <span>
                     {smartSuggestions?.recommendations?.length > 0 ? 'Smart Suggestions' : 'Study Suggestions'}
                   </span>
                   {smartSuggestions?.recommendations?.length > 0 && (
-                    <div className="absolute -top-1 -right-1 w-3 h-3 bg-orange-500 rounded-full animate-pulse" />
+                    <div className="absolute -top-1 -right-1 w-3 h-3 bg-orange-500 rounded-full animate-pulse" aria-label="New suggestions available" />
                   )}
                 </Button>
                 <div className="relative group">
@@ -411,18 +413,26 @@ const Dashboard = () => {
                     onClick={() => handleTakeQuiz()}
                     variant="outline"
                     className="h-20 border-border/50 text-foreground hover:bg-accent hover:text-accent-foreground flex flex-col gap-2 backdrop-blur-sm w-full"
+                    aria-label={`Take ${currentExam?.name || 'Exam'} quiz at various difficulty levels`}
+                    aria-haspopup="menu"
                   >
-                    <Trophy className="h-6 w-6" />
+                    <Trophy className="h-6 w-6" aria-hidden="true" />
                     <span>Take {currentExam?.name || 'Exam'} Quiz</span>
                   </Button>
 
                   {/* Exam-specific difficulty options - shown on hover */}
-                  <div className="absolute top-full left-0 right-0 mt-2 bg-card/95 backdrop-blur-sm border border-border/50 rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-10 p-2 space-y-1">
+                  <div
+                    className="absolute top-full left-0 right-0 mt-2 bg-card/95 backdrop-blur-sm border border-border/50 rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-10 p-2 space-y-1"
+                    role="menu"
+                    aria-label="Quiz difficulty levels"
+                  >
                     <Button
                       onClick={() => handleTakeQuiz('foundation')}
                       variant="ghost"
                       size="sm"
                       className="w-full text-left justify-start text-xs"
+                      role="menuitem"
+                      aria-label="Start foundation level quiz"
                     >
                       📚 Foundation Level
                     </Button>
@@ -431,6 +441,8 @@ const Dashboard = () => {
                       variant="ghost"
                       size="sm"
                       className="w-full text-left justify-start text-xs"
+                      role="menuitem"
+                      aria-label="Start intermediate level quiz"
                     >
                       📖 Intermediate Level
                     </Button>
@@ -439,6 +451,8 @@ const Dashboard = () => {
                       variant="ghost"
                       size="sm"
                       className="w-full text-left justify-start text-xs"
+                      role="menuitem"
+                      aria-label="Start advanced level quiz"
                     >
                       🎯 Advanced Level
                     </Button>
@@ -447,6 +461,8 @@ const Dashboard = () => {
                       variant="ghost"
                       size="sm"
                       className="w-full text-left justify-start text-xs font-semibold"
+                      role="menuitem"
+                      aria-label={`Start ${currentExam?.name || 'Exam'} level challenge`}
                     >
                       🏆 {currentExam?.name || 'Exam'}-Level Challenge
                     </Button>
@@ -591,11 +607,11 @@ const Dashboard = () => {
                 <div className="space-y-3">
                   <h3 className="text-lg font-semibold text-card-foreground">Study Insights</h3>
                   <div className="space-y-2 text-sm">
-                    <div className="flex justify-between">
+                    <div className="flex justify-between flex-wrap gap-2">
                       <span className="text-muted-foreground">Improvement Potential:</span>
                       <span className="capitalize font-medium">{smartSuggestions.study_insights.improvement_potential}</span>
                     </div>
-                    <div className="flex justify-between">
+                    <div className="flex justify-between flex-wrap gap-2">
                       <span className="text-muted-foreground">Study Consistency:</span>
                       <span className="capitalize font-medium">{smartSuggestions.study_insights.study_consistency}</span>
                     </div>
@@ -604,11 +620,11 @@ const Dashboard = () => {
 
                 <div className="space-y-3">
                   <h3 className="text-lg font-semibold text-card-foreground">Next Actions</h3>
-                  <div className="space-y-1">
+                  <div className="space-y-2">
                     {smartSuggestions.next_best_actions?.slice(0, 3).map((action: string, index: number) => (
-                      <div key={index} className="text-sm text-muted-foreground flex items-start gap-2">
-                        <CheckCircle className="h-4 w-4 text-primary mt-0.5 shrink-0" />
-                        <span>{action}</span>
+                      <div key={index} className="text-sm text-foreground flex items-start gap-2 p-2 bg-muted/30 rounded-md">
+                        <CheckCircle className="h-4 w-4 text-primary mt-0.5 shrink-0 flex-shrink-0" aria-hidden="true" />
+                        <span className="break-words leading-relaxed">{action}</span>
                       </div>
                     ))}
                   </div>
@@ -635,13 +651,14 @@ const Dashboard = () => {
                   Your Subjects
                 </h2>
                 {getUserSubjects().length > 0 && (
-                  <Button 
+                  <Button
                     onClick={handleEditSubjects}
                     variant="outline"
                     size="sm"
                     className="border-border/50 text-foreground hover:bg-accent hover:text-accent-foreground backdrop-blur-sm"
+                    aria-label="Edit your selected subjects"
                   >
-                    <Settings className="h-4 w-4 mr-2" />
+                    <Settings className="h-4 w-4 mr-2" aria-hidden="true" />
                     Edit Subjects
                   </Button>
                 )}
@@ -653,25 +670,35 @@ const Dashboard = () => {
                     const subjectName = subject?.name || subjectId;
                     
                     return (
-                      <Card 
+                      <Card
                         key={subjectId}
                         className="cursor-pointer transition-all duration-300 hover:shadow-glow-primary hover:scale-105 bg-card/80 backdrop-blur-sm border-border/50"
                         onClick={() => handleSubjectSelect(profile.exam_id!, subjectId)}
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`Start learning ${subjectName}`}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            handleSubjectSelect(profile.exam_id!, subjectId);
+                          }
+                        }}
                       >
                         <CardContent className="p-6 text-center">
-                          <div className="text-4xl mb-3">
+                          <div className="text-4xl mb-3" aria-hidden="true">
                             {getSubjectIcon(subjectName)}
                           </div>
                           <h3 className="text-lg font-semibold text-card-foreground mb-2">
                             {subjectName}
                           </h3>
-                          <Button 
+                          <Button
                             size="sm"
                             className="bg-gradient-primary hover:opacity-90 transition-opacity"
                             onClick={(e) => {
                               e.stopPropagation();
                               handleSubjectSelect(profile.exam_id!, subjectId);
                             }}
+                            aria-label={`Start learning ${subjectName}`}
                           >
                             Start Learning
                           </Button>
@@ -744,6 +771,7 @@ const Dashboard = () => {
                       size="sm"
                       onClick={() => navigate(`/tutor/${session.exam_id}/${session.subject_id}/${session.chapter_id}`)}
                       className="bg-gradient-primary hover:opacity-90 transition-opacity ml-4"
+                      aria-label={`Continue session: ${session.subject_name} - ${session.chapter_name}`}
                     >
                       Continue
                     </Button>
